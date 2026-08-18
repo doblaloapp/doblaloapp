@@ -4,8 +4,7 @@ import { supabase, requireAuth, getProfile } from './lib/supabase.js';
 await requireAuth();
 const profile = await getProfile();
 document.getElementById('userBadge').textContent = profile?.username ? `@${profile.username}` : '';
-if (profile?.role === 'creator' || profile?.role === 'admin') {
-  document.getElementById('creatorLink').classList.remove('hidden');
+document.getElementById('creatorLink').classList.remove('hidden');
 }
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
