@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mi Panel - Doblaje Latino</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body class="text-slate-100">
+  <header class="glass sticky top-0 z-20 px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">🎙️</span>
+      <h1 class="font-bold text-lg">Mi Panel</h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <a id="creatorLink" href="/creator.html" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10 hidden">+ Crear escena</a>
+      <span id="userBadge" class="text-sm text-slate-300"></span>
+      <button id="logoutBtn" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10">Salir</button>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-6 space-y-8">
+    <section>
+      <h2 class="text-xl font-bold mb-3">🎬 Escenas disponibles</h2>
+      <div id="scenesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <p class="text-slate-400">Cargando...</p>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-xl font-bold mb-3">✅ Mis proyectos</h2>
+      <div id="projectsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <p class="text-slate-400">Cargando...</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/dashboard.js"></script>
+</body>
+</html>
