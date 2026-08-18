@@ -6,8 +6,7 @@ import { trimVideo } from './videoTrimmer.js';
 const $ = (id) => document.getElementById(id);
 await requireAuth();
 const profile = await getProfile();
-if (!profile || !['creator','admin'].includes(profile.role)) {
-  alert('Necesitas rol de creador. Cambialo en la tabla profiles.');
+document.getElementById('creatorLink').classList.remove('hidden');
 }
 
 const state = { file: null, trimmedBlob: null, chars: [], dialogues: [], duration: 30 };
