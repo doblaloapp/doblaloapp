@@ -5,8 +5,8 @@
 // La ANON KEY es publica (segura para el frontend);
 // NUNCA pongas aqui la service_role key.
 // ============================================================
-export const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
-export const SUPABASE_ANON_KEY = 'TU_ANON_KEY_PUBLICA';
+export const SUPABASE_URL = 'https://cgrytdnygeuakgkiqtbw.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_J8MT7CnV_6EnS4yRtkVS-Q_JgBVrTIK';
 
 export const BUCKETS = {
   scenesSource: 'scenes-source',
