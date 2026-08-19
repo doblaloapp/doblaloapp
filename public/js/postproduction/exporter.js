@@ -21,8 +21,9 @@ async function getFFmpeg(onProgress) {
   const { toBlobURL } = await import('https://esm.sh/@ffmpeg/util@0.12.1');
 
   const ffmpeg = new FFmpeg();
-  const base = 'https://esm.sh/@ffmpeg/core@0.12.6/dist/esm';
+  const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
   await ffmpeg.load({
+    classWorkerURL: new URL('/ffmpeg/worker.js', location.origin).href,
     coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
     wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
   });
