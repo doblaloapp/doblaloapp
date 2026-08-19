@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crear Escena - Doblaje Latino</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body class="text-slate-100">
+  <header class="glass sticky top-0 z-20 px-6 py-3 flex items-center justify-between">
+    <a href="/dashboard.html" class="flex items-center gap-2 hover:opacity-80">
+      <span>&larr;</span><span class="text-2xl">&#127916;</span><h1 class="font-bold">Crear Escena</h1>
+    </a>
+  </header>
+
+  <main class="max-w-3xl mx-auto p-6 space-y-6">
+
+    <!-- Paso 1: Subir -->
+    <section class="glass rounded-2xl p-5">
+      <h2 class="font-bold mb-3">1 &middot; Sube tu video</h2>
+      <input id="videoInput" type="file" accept="video/*"
+        class="block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-violet-600 file:text-white" />
+      <video id="preview" class="w-full rounded-xl bg-black aspect-video mt-4 hidden" controls></video>
+    </section>
+
+    <!-- Paso 2: Recorte -->
+    <section id="trimSection" class="glass rounded-2xl p-5 hidden">
+      <h2 class="font-bold mb-3">2 &middot; Recorta y ajusta</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <label class="text-sm">Inicio (s)
+          <input id="inPoint" type="number" step="0.1" value="0" class="w-full glass rounded-lg px-3 py-2 mt-1">
+        </label>
+        <label class="text-sm">Fin (s)
+          <input id="outPoint" type="number" step="0.1" value="30" class="w-full glass rounded-lg px-3 py-2 mt-1">
+        </label>
+      </div>
+      <label class="text-sm block mt-3">Relaci&oacute;n de aspecto
+        <select id="aspect" class="w-full glass rounded-lg px-3 py-2 mt-1 bg-transparent">
+          <option value="original" class="bg-slate-800">Original</option>
+          <option value="16:9" class="bg-slate-800">16:9 (horizontal)</option>
+          <option value="9:16" class="bg-slate-800">9:16 (vertical)</option>
+          <option value="1:1" class="bg-slate-800">1:1 (cuadrado)</option>
+        </select>
+      </label>
+      <button id="trimBtn" class="btn-primary mt-4 px-4 py-2 rounded-lg text-sm font-semibold">&#9986; Recortar y subir</button>
+      <span id="trimStatus" class="text-sm text-slate-400 ml-3"></span>
+    </section>
+
+    <!-- Paso 3: Transcripcion IA -->
+    <section id="transSection" class="glass rounded-2xl p-5 hidden">
+      <h2 class="font-bold mb-1">3 &middot; An&aacute;lisis con IA</h2>
+      <p class="text-xs text-slate-400 mb-3">
+        Extrae el audio, transcribe y separa a los hablantes autom&aacute;ticamente (AssemblyAI).
+      </p>
+      <button id="analyzeBtn" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">&#129302; Analizar video</button>
+      <div id="analyzeStatus" class="text-sm text-slate-300 mt-3"></div>
+      <div class="mt-3 h-2 rounded-full bg-white/10 overflow-hidden hidden" id="analyzeBarWrap">
+        <div id="analyzeBar" class="xp-bar h-full bg-cyan-400" style="width:0%"></div>
+      </div>
+    </section>
+
+    <!-- Pasos 4 y 5: Mapeo y validacion de personajes -->
+    <section id="mapSection" class="glass rounded-2xl p-5 hidden">
+      <h2 class="font-bold mb-1">4 y 5 &middot; Personajes detectados</h2>
+      <p class="text-xs text-slate-400 mb-3">
+        La IA separ&oacute; estos hablantes. Ponle nombre a cada uno y ajusta si hace falta.
+      </p>
+      <div id="speakerList" class="space-y-3 mb-4"></div>
+
+      <details class="mt-2">
+        <summary class="cursor-pointer text-sm text-slate-300">Ver gui&oacute;n detectado (l&iacute;neas)</summary>
+        <div id="lineList" class="space-y-2 mt-3 max-h-72 overflow-y-auto thin-scroll pr-1"></div>
+      </details>
+    </section>
+
+    <!-- Publicar -->
+    <section id="publishSection" class="glass rounded-2xl p-5 hidden">
+      <h2 class="font-bold mb-3">Publicar</h2>
+      <input id="sceneTitle" placeholder="T&iacute;tulo de la escena" class="w-full glass rounded-lg px-3 py-2 text-sm mb-3">
+      <button id="publishBtn" class="btn-primary px-5 py-3 rounded-xl font-semibold">&#128640; Publicar escena</button>
+      <span id="publishStatus" class="text-sm text-slate-400 ml-3"></span>
+    </section>
+  </main>
+
+  <script type="module" src="/js/creator/creator.js"></script>
+  <script type="module" src="/js/lib/version.js"></script>
+</body>
+</html>
