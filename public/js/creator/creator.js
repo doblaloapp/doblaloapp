@@ -28,72 +28,14 @@ $('videoInput').addEventListener('change', (e) => {
   v.classList.remove('hidden');
   v.onloadedmetadata = () => {
     state.duration = v.duration;
-    setupTrimmer(v.duration);
+    $('outPoint').value = Math.min(30, v.duration).toFixed(1);
   };
   $('trimSection').classList.remove('hidden');
 });
 
-// ============ Trimmer visual interactivo ============
-const trim = { in: 0, out: 0, dur: 0 };
-
-function setupTrimmer(duration) {
-  trim.dur = duration;
-  trim.in = 0;
-  trim.out = Math.min(30, duration);
-  const inR = $('inRange'), outR = $('outRange');
-  inR.max = outR.max = duration;
-  inR.value = trim.in;
-  outR.value = trim.out;
-  updateTrimUI();
-}
-
-function updateTrimUI() {
-  const pct = (t) => (trim.dur ? (t / trim.dur) * 100 : 0);
-  $('trimFill').style.left = pct(trim.in) + '%';
-  $('trimFill').style.width = (pct(trim.out) - pct(trim.in)) + '%';
-  $('inLabel').textContent = trim.in.toFixed(1) + 's';
-  $('outLabel').textContent = trim.out.toFixed(1) + 's';
-  $('selDur').textContent = (trim.out - trim.in).toFixed(1) + 's';
-}
-
-$('inRange').addEventListener('input', (e) => {
-  trim.in = Math.min(parseFloat(e.target.value), trim.out - 0.2);
-  e.target.value = trim.in;
-  $('preview').currentTime = trim.in; // preview en vivo
-  updateTrimUI();
-});
-$('outRange').addEventListener('input', (e) => {
-  trim.out = Math.max(parseFloat(e.target.value), trim.in + 0.2);
-  e.target.value = trim.out;
-  $('preview').currentTime = trim.out;
-  updateTrimUI();
-});
-
-// marcar con el video (super intuitivo)
-$('markIn').addEventListener('click', () => {
-  trim.in = Math.min($('preview').currentTime, trim.out - 0.2);
-  $('inRange').value = trim.in; updateTrimUI();
-});
-$('markOut').addEventListener('click', () => {
-  trim.out = Math.max($('preview').currentTime, trim.in + 0.2);
-  $('outRange').value = trim.out; updateTrimUI();
-});
-$('playSel').addEventListener('click', () => {
-  const v = $('preview');
-  v.currentTime = trim.in; v.play();
-  const stop = () => { if (v.currentTime >= trim.out) { v.pause(); v.removeEventListener('timeupdate', stop); } };
-  v.addEventListener('timeupdate', stop);
-});
-
-// playhead sigue al video
-$('preview').addEventListener('timeupdate', () => {
-  if (!trim.dur) return;
-  $('trimPlayhead').style.left = (($('preview').currentTime / trim.dur) * 100) + '%';
-});
-
 // ============ Paso 2: Recortar + subir ============
 $('trimBtn').addEventListener('click', async () => {
-  const inP = trim.in, outP = trim.out;
+  const inP = parseFloat($('inPoint').value), outP = parseFloat($('outPoint').value);
   if (outP <= inP) return alert('El fin debe ser mayor que el inicio');
   $('trimBtn').disabled = true;
   const st = $('trimStatus');
