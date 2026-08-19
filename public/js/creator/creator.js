@@ -5,9 +5,8 @@ import { trimVideo } from './videoTrimmer.js';
 
 const $ = (id) => document.getElementById(id);
 await requireAuth();
+// Opcion B: cualquier usuario autenticado puede crear escenas.
 const profile = await getProfile();
-document.getElementById('creatorLink').classList.remove('hidden');
-}
 
 const state = { file: null, trimmedBlob: null, chars: [], dialogues: [], duration: 30 };
 
