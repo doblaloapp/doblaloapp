@@ -1,22 +1,23 @@
 // js/studio/waveform.js
-// Wrapper ligero sobre Wavesurfer.js (cargado por CDN como global WaveSurfer)
+// Ondas superpuestas: original grande (gris) + tu grabacion (cyan) encima.
 export function createOriginalWave(container, videoEl) {
   return WaveSurfer.create({
     container,
-    waveColor: '#475569',
+    waveColor: '#64748b',      // gris mas visible
     progressColor: '#8b5cf6',
-    height: 56,
+    height: 120,
     cursorColor: '#8b5cf6',
-    media: videoEl, // se sincroniza con el video automaticamente
+    cursorWidth: 2,
+    media: videoEl,            // sincronizada con el video
   });
 }
 
 export function createTakeWave(container) {
   return WaveSurfer.create({
     container,
-    waveColor: '#0e7490',
-    progressColor: '#22d3ee',
-    height: 56,
-    cursorColor: '#22d3ee',
+    waveColor: 'rgba(34,211,238,.9)', // cyan translucido para superponer
+    progressColor: 'rgba(34,211,238,.9)',
+    height: 120,
+    cursorWidth: 0,
   });
 }

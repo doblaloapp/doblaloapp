@@ -4,8 +4,8 @@
 // para verificar (abajo a la derecha en la pantalla) que Vercel
 // ya sirvio la version nueva y no una cacheada.
 // ============================================================
-export const APP_VERSION = 'v1.5.0';
-export const APP_BUILD = '2026-08-20 · grabación por secciones + pre-roll 3s'
+export const APP_VERSION = 'v1.5.1';
+export const APP_BUILD = '2026-08-20 · karaoke + ondas superpuestas + borrar'
 
 function injectBadge() {
   if (document.getElementById('appVersionBadge')) return;

@@ -11,30 +11,22 @@ const $ = (id) => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 
 const state = {
-  sceneId: qs.get('scene'),
-  projectId: qs.get('project'),
+  sceneId: qs.get('scene'), projectId: qs.get('project'),
   scene: null, characters: [], charById: {}, dialogues: [],
-  myCharIds: new Set(),
-  selectedChars: [],   // personajes elegidos, en orden
-  myLines: [],         // lineas filtradas y ordenadas por seccion
-  sections: [],        // [{char, from, to}] indices en myLines
-  active: 0,
-  takes: {},
-  project: null,
+  myCharIds: new Set(), selectedChars: [], myLines: [], sections: [],
+  active: 0, takes: {}, project: null,
 };
 
 const recorder = new LineRecorder();
 const preview = new PreviewPlayer();
-let waveOriginal, waveTake;
+let waveOriginal, waveTake, studioReady = false, currentProfile = 'natural';
 
-// helpers de modal/overlay (function = hoisting seguro)
 function showModal(id) { $(id).classList.remove('hidden'); $(id).classList.add('flex'); }
 function hideModal(id) { $(id).classList.add('hidden'); $(id).classList.remove('flex'); }
 function showOverlay(el) { el.classList.remove('hidden'); el.classList.add('flex'); }
 function hideOverlay(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
 const charOf = (d) => state.charById[d.character_id] || { name: '¿?', color: '#94a3b8' };
 const fmt = (s) => { const m = Math.floor(s/60), sec = (s%60).toFixed(1).padStart(4,'0'); return `${String(m).padStart(2,'0')}:${sec}`; };
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 await requireAuth();
 try { await loadScene(); }
@@ -52,20 +44,15 @@ async function loadScene() {
   state.characters = chars || [];
   state.charById = Object.fromEntries(state.characters.map(c => [c.id, c]));
 
-  const { data: lines } = await supabase.from('dialogues').select('*')
-    .eq('scene_id', state.sceneId).order('line_order');
+  const { data: lines } = await supabase.from('dialogues').select('*').eq('scene_id', state.sceneId).order('line_order');
   state.dialogues = lines || [];
 
   const nc = state.characters.length, nd = state.dialogues.length;
   $('myChars').textContent = `Escena: ${nc} personajes · ${nd} líneas`;
-
   if (!nc) {
     $('karaokeText').textContent = 'Esta escena no tiene personajes guardados.';
-    $('originalText').textContent = 'Créala de nuevo con el análisis de IA.';
-    $('megaBtn').disabled = true; $('megaBtn').style.opacity = '.4';
-    return;
+    $('megaBtn').disabled = true; $('megaBtn').style.opacity = '.4'; return;
   }
-
   if (state.projectId) { await preloadProject(); }
   renderCharModal();
 }
@@ -76,9 +63,7 @@ async function preloadProject() {
   const { data: pc } = await supabase.from('project_characters').select('character_id').eq('project_id', state.projectId);
   (pc || []).forEach(r => state.myCharIds.add(r.character_id));
   const { data: takes } = await supabase.from('takes').select('*').eq('project_id', state.projectId);
-  (takes || []).forEach(t => {
-    state.takes[t.dialogue_id] = { url: t.audio_url, offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile, saved: true };
-  });
+  (takes || []).forEach(t => { state.takes[t.dialogue_id] = { url: t.audio_url, offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile, saved: true }; });
 }
 
 // ============ SELECCION DE PERSONAJES ============
@@ -103,8 +88,11 @@ $('startStudioBtn').addEventListener('click', async () => {
   state.myCharIds = new Set(checked);
   await ensureProject();
   hideModal('charModal');
-  await initStudio();
+  if (!studioReady) { await initOnce(); studioReady = true; }
+  refreshSession();
 });
+
+$('changeCharsBtn').addEventListener('click', () => renderCharModal());
 
 async function ensureProject() {
   const { data: { user } } = await supabase.auth.getUser();
@@ -118,32 +106,28 @@ async function ensureProject() {
   if (rows.length) await supabase.from('project_characters').insert(rows);
 }
 
-// ============ INICIALIZAR ============
-async function initStudio() {
-  // personajes elegidos, en el orden en que aparecen en la lista
-  state.selectedChars = state.characters.filter(c => state.myCharIds.has(c.id));
-  $('myChars').textContent = `Doblas: ${state.selectedChars.map(c => c.name).join(', ')}`;
-
-  // construir myLines por SECCIONES (todas las de personaje 1, luego personaje 2, ...)
-  buildMyLines();
-
-  try { await recorder.init(); }
-  catch { alert('Necesito permiso del micrófono para grabar 🎙️'); }
-
+// ============ INIT (una sola vez) ============
+async function initOnce() {
+  try { await recorder.init(); } catch { alert('Necesito permiso del micrófono para grabar 🎙️'); }
   waveOriginal = createOriginalWave('#waveOriginal', $('videoPlayer'));
   waveTake = createTakeWave('#waveTake');
-
   renderProfiles();
+  bindControls();
+}
+
+// ============ REFRESCAR SESION (al cambiar personajes) ============
+function refreshSession() {
+  state.selectedChars = state.characters.filter(c => state.myCharIds.has(c.id));
+  $('myChars').textContent = `Doblas: ${state.selectedChars.map(c => c.name).join(', ')}`;
+  buildMyLines();
   renderScript();
   renderBreakdown();
-  bindControls();
   goToFirstPending();
   updateXP();
 }
 
 function buildMyLines() {
-  state.myLines = [];
-  state.sections = [];
+  state.myLines = []; state.sections = [];
   state.selectedChars.forEach(c => {
     const lines = state.dialogues.filter(d => d.character_id === c.id);
     if (!lines.length) return;
@@ -152,39 +136,41 @@ function buildMyLines() {
     state.sections.push({ char: c, from, to: state.myLines.length - 1 });
   });
 }
+const sectionOf = (index) => state.sections.find(s => index >= s.from && index <= s.to);
 
-function sectionOf(index) {
-  return state.sections.find(s => index >= s.from && index <= s.to);
-}
-
-// ============ FILTROS DE VOZ (POST) ============
-let currentProfile = 'natural';
+// ============ FILTROS (POST) ============
 function renderProfiles() {
   $('profileRow').innerHTML = PROFILES.map(p => `
     <div class="profile-card glass rounded-xl px-3 py-2 min-w-[84px] text-center ${p.id===currentProfile?'selected':''}"
          data-id="${p.id}" title="${p.desc}">
-      <div class="text-2xl">${p.emoji}</div>
-      <div class="text-xs mt-1">${p.name}</div>
+      <div class="text-2xl">${p.emoji}</div><div class="text-xs mt-1">${p.name}</div>
     </div>`).join('');
-  document.querySelectorAll('.profile-card').forEach(el => {
-    el.addEventListener('click', () => {
-      currentProfile = el.dataset.id;
-      document.querySelectorAll('.profile-card').forEach(c => c.classList.toggle('selected', c===el));
-      const d = state.myLines[state.active];
-      if (d && state.takes[d.id]) { state.takes[d.id].voice_profile = currentProfile; saveTakeMeta(d); previewCurrent(); }
-    });
-  });
+  document.querySelectorAll('.profile-card').forEach(el => el.addEventListener('click', () => {
+    currentProfile = el.dataset.id;
+    document.querySelectorAll('.profile-card').forEach(c => c.classList.toggle('selected', c===el));
+    const d = state.myLines[state.active];
+    if (d && state.takes[d.id]) { state.takes[d.id].voice_profile = currentProfile; saveTakeMeta(d); previewCurrent(); }
+  }));
+}
+
+// ============ KARAOKE ============
+function renderKaraoke(text) {
+  const parts = (text || '—').split(/(\s+)/);
+  $('karaokeText').innerHTML = parts.map(w => /\S/.test(w) ? `<span class="kw">${w}</span>` : w).join('');
+}
+function setKaraokeProgress(p) {
+  const spans = $('karaokeText').querySelectorAll('.kw');
+  const on = Math.ceil(p * spans.length);
+  spans.forEach((s, i) => s.classList.toggle('on', i < on));
 }
 
 // ============ LIBRETO POR SECCIONES ============
 function renderScript() {
   let html = '';
   state.sections.forEach(sec => {
-    html += `<div class="text-xs font-bold uppercase tracking-wide mt-3 mb-1" style="color:${sec.char.color}">
-      ▸ ${sec.char.name}</div>`;
+    html += `<div class="text-xs font-bold uppercase tracking-wide mt-3 mb-1" style="color:${sec.char.color}">▸ ${sec.char.name}</div>`;
     for (let i = sec.from; i <= sec.to; i++) {
-      const d = state.myLines[i];
-      const done = !!state.takes[d.id];
+      const d = state.myLines[i], done = !!state.takes[d.id];
       html += `
         <div class="line-item rounded-lg p-2.5 cursor-pointer transition ${done?'line-done':''}" data-index="${i}">
           <div class="flex justify-between items-center">
@@ -197,8 +183,7 @@ function renderScript() {
     }
   });
   $('scriptList').innerHTML = html;
-  document.querySelectorAll('.line-item').forEach(el =>
-    el.addEventListener('click', () => selectLine(+el.dataset.index)));
+  document.querySelectorAll('.line-item').forEach(el => el.addEventListener('click', () => selectLine(+el.dataset.index)));
 }
 
 function selectLine(index) {
@@ -206,20 +191,16 @@ function selectLine(index) {
   if (!d) return;
   state.active = index;
   document.querySelectorAll('.line-item').forEach(el => el.classList.toggle('line-active', +el.dataset.index===index));
-
-  const sec = sectionOf(index);
-  const c = charOf(d);
+  const sec = sectionOf(index), c = charOf(d);
   $('sectionTag').textContent = sec ? `Sección: ${sec.char.name} (${index - sec.from + 1}/${sec.to - sec.from + 1})` : '';
   $('lineCharName').textContent = c.name;
   $('lineCharDot').style.background = c.color;
   $('lineTimecode').textContent = `${fmt(d.start_time)} → ${fmt(d.end_time)}`;
-  // español como línea a doblar; inglés como referencia
-  $('karaokeText').textContent = d.translated_text || d.original_text || '—';
+  renderKaraoke(d.translated_text || d.original_text || '—');
   $('originalText').textContent = d.original_text && d.translated_text ? `(${d.original_text})` : '';
   $('lineProgress').style.width = '0%';
   $('reward').classList.add('hidden');
   $('videoPlayer').currentTime = d.start_time;
-
   const t = state.takes[d.id];
   $('listenBtn').classList.toggle('hidden', !t);
   if (t) {
@@ -228,7 +209,6 @@ function selectLine(index) {
     if (t.blob) waveTake.loadBlob(t.blob);
   }
 }
-
 function goToFirstPending() {
   const idx = state.myLines.findIndex(d => !state.takes[d.id]);
   selectLine(idx >= 0 ? idx : 0);
@@ -236,20 +216,19 @@ function goToFirstPending() {
 
 // ============ DESGLOSE DE PERSONAJES ============
 function renderBreakdown() {
+  let allDone = state.myLines.length > 0;
   $('charBreakdown').innerHTML = state.sections.map(sec => {
     const total = sec.to - sec.from + 1;
-    let done = 0;
-    for (let i = sec.from; i <= sec.to; i++) if (state.takes[state.myLines[i].id]) done++;
-    const pct = Math.round((done/total)*100);
-    const complete = done === total;
+    let done = 0; for (let i = sec.from; i <= sec.to; i++) if (state.takes[state.myLines[i].id]) done++;
+    if (done < total) allDone = false;
+    const pct = Math.round((done/total)*100), complete = done === total;
     return `
       <div class="glass rounded-xl p-3">
         <div class="flex items-center gap-2 mb-2">
           <span class="w-3 h-3 rounded-full" style="background:${sec.char.color}"></span>
           <span class="text-sm font-medium flex-1">${sec.char.name}</span>
           <span class="text-xs text-slate-400">${done}/${total}</span>
-          ${complete
-            ? '<span class="text-xs text-emerald-400 font-semibold">✅ Completo</span>'
+          ${complete ? '<span class="text-xs text-emerald-400 font-semibold">✅ Completo</span>'
             : `<button class="rec-char btn-primary px-3 py-1 rounded-lg text-xs" data-from="${sec.from}">Grabar</button>`}
         </div>
         <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -258,16 +237,15 @@ function renderBreakdown() {
       </div>`;
   }).join('');
   document.querySelectorAll('.rec-char').forEach(b => b.addEventListener('click', () => {
-    const from = +b.dataset.from, sec = sectionOf(from);
-    // salta a la primera pendiente de esa seccion
-    let target = from;
-    for (let i = sec.from; i <= sec.to; i++) { if (!state.takes[state.myLines[i].id]) { target = i; break; } }
+    const from = +b.dataset.from, sec = sectionOf(from); let target = from;
+    for (let i = sec.from; i <= sec.to; i++) if (!state.takes[state.myLines[i].id]) { target = i; break; }
     selectLine(target);
     $('lineCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
+  $('finishRecBtn').classList.toggle('hidden', !allDone);
 }
 
-// ============ CONTROLES / GRABACION con PRE-ROLL de 3s ============
+// ============ CONTROLES + GRABACION con PRE-ROLL 3s ============
 function bindControls() {
   $('megaBtn').addEventListener('click', onMegaClick);
   $('prevBtn').addEventListener('click', () => selectLine(Math.max(0, state.active-1)));
@@ -276,7 +254,10 @@ function bindControls() {
   $('saveBtn').addEventListener('click', saveAll);
   $('exportBtn').addEventListener('click', doExport);
   $('closeExport').addEventListener('click', () => hideModal('exportModal'));
-
+  $('finishRecBtn').addEventListener('click', () => {
+    $('postSection').open = true;
+    $('postSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
   $('offsetSlider').addEventListener('input', e => {
     $('offsetVal').textContent = `${e.target.value} ms`;
     const d = state.myLines[state.active]; if (d && state.takes[d.id]) { state.takes[d.id].offset_ms = +e.target.value; saveTakeMeta(d); }
@@ -285,39 +266,38 @@ function bindControls() {
     $('gainVal').textContent = `${e.target.value}dB`;
     const d = state.myLines[state.active]; if (d && state.takes[d.id]) { state.takes[d.id].gain_db = +e.target.value; saveTakeMeta(d); }
   });
-
-  $('videoPlayer').addEventListener('timeupdate', () => {
-    $('timecodeDisplay').textContent = fmt($('videoPlayer').currentTime);
-  });
+  $('videoPlayer').addEventListener('timeupdate', () => { $('tcOverlay').textContent = fmt($('videoPlayer').currentTime); });
 }
 
 let recording = false, armed = false;
 async function onMegaClick() {
   if (recording || armed) return stopRecording();
-  const d = state.myLines[state.active];
-  if (!d) return;
+  const d = state.myLines[state.active]; if (!d) return;
   const video = $('videoPlayer');
-
-  await countdown();            // 3 - 2 - 1
+  await countdown();
   armed = true;
-  // colocarse 3 segundos ANTES para alistarse
-  video.currentTime = Math.max(0, d.start_time - 3);
+  video.currentTime = Math.max(0, d.start_time - 3); // 3s antes para alistarse
   await video.play();
   $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-yellow-300"></span> Prepárate...';
+  $('entryHint').classList.remove('hidden');
 
   const dur = d.end_time - d.start_time;
   const loop = () => {
     if (!armed && !recording) return;
     const t = video.currentTime;
-    // arrancar grabacion justo al inicio real de la linea
+    if (!recording && t < d.start_time) {
+      $('entryHint').textContent = `▶ Entra en ${(d.start_time - t).toFixed(1)}s`;
+    }
     if (!recording && t >= d.start_time) {
       recorder.start(); recording = true;
+      $('entryHint').textContent = '🔴 GRABANDO';
       $('megaBtn').classList.add('rec-pulse');
       $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-white"></span> Detener';
     }
     if (recording) {
-      const p = Math.min(100, ((t - d.start_time) / dur) * 100);
-      $('lineProgress').style.width = `${Math.max(0,p)}%`;
+      const p = Math.min(1, (t - d.start_time) / dur);
+      $('lineProgress').style.width = `${p*100}%`;
+      setKaraokeProgress(p);
     }
     if (t >= d.end_time) { stopRecording(); return; }
     requestAnimationFrame(loop);
@@ -329,24 +309,21 @@ async function stopRecording() {
   const video = $('videoPlayer'); video.pause();
   const wasRecording = recording;
   armed = false; recording = false;
+  $('entryHint').classList.add('hidden');
   $('megaBtn').classList.remove('rec-pulse');
   $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-white"></span> Grabar de nuevo';
   $('lineProgress').style.width = '100%';
-  if (wasRecording) {
-    const blob = await recorder.stop();
-    if (blob) await handleTake(blob);
-  }
+  setKaraokeProgress(1);
+  if (wasRecording) { const blob = await recorder.stop(); if (blob) await handleTake(blob); }
 }
 
 async function handleTake(blob) {
   const d = state.myLines[state.active];
-  const url = URL.createObjectURL(blob);
-  state.takes[d.id] = { blob, url, offset_ms: 0, gain_db: 0, voice_profile: 'natural', saved: false };
+  state.takes[d.id] = { blob, url: URL.createObjectURL(blob), offset_ms: 0, gain_db: 0, voice_profile: 'natural', saved: false };
   waveTake.loadBlob(blob);
   showReward();
   $('listenBtn').classList.remove('hidden');
-  renderScript(); renderBreakdown(); updateXP();
-  selectLine(state.active); // refresca resaltado
+  renderScript(); renderBreakdown(); updateXP(); selectLine(state.active);
   await uploadTake(d, blob);
 }
 
@@ -370,34 +347,28 @@ async function saveTakeMeta(dialogue) {
 }
 
 async function previewCurrent() {
-  const d = state.myLines[state.active]; const t = state.takes[d.id]; if (!t) return;
+  const d = state.myLines[state.active], t = state.takes[d.id]; if (!t) return;
   let blob = t.blob; if (!blob && t.url) blob = await (await fetch(t.url)).blob();
   await preview.play(blob, t.voice_profile || 'natural', t.gain_db || 0);
 }
 
-// ============ RECOMPENSA / XP ============
 function showReward() {
   const msgs = ['¡Buena toma! 🌟','¡Perfecto! 🎯','¡Suena genial! 🔥','¡Nivel actor! 🎭','¡Increíble! ✨'];
   const r = $('reward'); r.textContent = msgs[Math.floor(Math.random()*msgs.length)];
   r.classList.remove('hidden'); r.classList.remove('reward-badge'); void r.offsetWidth; r.classList.add('reward-badge');
 }
-
 function updateXP() {
-  const total = state.myLines.length;
-  const done = state.myLines.filter(d => state.takes[d.id]).length;
+  const total = state.myLines.length, done = state.myLines.filter(d => state.takes[d.id]).length;
   const pct = total ? Math.round((done/total)*100) : 0;
-  $('xpBar').style.width = `${pct}%`;
-  $('xpLabel').textContent = `${done}/${total}`;
+  $('xpBar').style.width = `${pct}%`; $('xpLabel').textContent = `${done}/${total}`;
   supabase.from('projects').update({ progress: pct, updated_at: new Date().toISOString() }).eq('id', state.projectId).then(()=>{});
 }
-
 async function saveAll() {
   $('saveBtn').textContent = '⏳';
   await supabase.from('projects').update({ updated_at: new Date().toISOString() }).eq('id', state.projectId);
   setTimeout(()=> $('saveBtn').textContent = '💾', 800);
 }
 
-// ============ EXPORTAR ============
 async function doExport() {
   showModal('exportModal');
   try {
@@ -411,11 +382,9 @@ async function doExport() {
   } catch (e) { console.error(e); $('exportStatus').textContent = 'Error al exportar: ' + e.message; }
 }
 
-// ============ CUENTA REGRESIVA ============
 function countdown() {
   return new Promise(resolve => {
-    const ov = $('countdownOverlay'), num = $('countdownNum'), hint = $('countdownHint');
-    hint.textContent = 'Prepárate para grabar';
+    const ov = $('countdownOverlay'), num = $('countdownNum');
     let n = 3; showOverlay(ov); num.textContent = n;
     const iv = setInterval(() => {
       n--;
