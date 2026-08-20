@@ -45,56 +45,73 @@ async function loadScene() {
     .select('*').eq('scene_id', state.sceneId).order('line_order');
   state.dialogues = lines || [];
 
-  if (state.projectId) { await resumeProject(); }
-  else { renderCharModal(); }
+  // Estado vacio: escena sin personajes o sin lineas -> mensaje claro, no pantalla muerta
+  if (!state.characters.length || !state.dialogues.length) {
+    $('karaokeText').textContent = 'Esta escena no tiene líneas guardadas todavía.';
+    $('originalText').textContent = 'Vuelve al panel y créala de nuevo con el análisis de IA.';
+    $('megaBtn').disabled = true; $('megaBtn').style.opacity = '.4';
+    return;
+  }
+
+  // Si hay proyecto previo, precarga su seleccion y tomas (pero igual mostramos el panel)
+  if (state.projectId) { await preloadProject(); }
+  renderCharModal();
 }
 
-// ============ SELECCION DE PERSONAJES ============
-function renderCharModal() {
-  $('charOptions').innerHTML = state.characters.map(c => `
-    <label class="glass rounded-xl p-3 flex items-center gap-2 cursor-pointer hover:bg-white/10 transition">
-      <input type="checkbox" value="${c.id}" class="char-check accent-violet-500 w-4 h-4">
-      <span class="w-3 h-3 rounded-full" style="background:${c.color}"></span>
-      <span class="text-sm font-medium">${c.name}</span>
-    </label>`).join('');
-  showModal('charModal');
-}
-
-$('startStudioBtn').addEventListener('click', async () => {
-  document.querySelectorAll('.char-check:checked').forEach(cb => state.myCharIds.add(cb.value));
-  if (!state.myCharIds.size) return alert('Elige al menos un personaje');
-  await createProject();
-  hideModal('charModal');
-  await initStudio();
-});
-
-async function createProject() {
-  const { data: { user } } = await supabase.auth.getUser();
-  const { data: project } = await supabase.from('projects')
-    .insert({ scene_id: state.sceneId, user_id: user.id, title: state.scene.title })
-    .select().single();
-  state.project = project; state.projectId = project.id;
-  const rows = [...state.myCharIds].map(cid => ({ project_id: project.id, character_id: cid }));
-  await supabase.from('project_characters').insert(rows);
-}
-
-async function resumeProject() {
+// carga proyecto existente sin saltarse el panel de seleccion
+async function preloadProject() {
   const { data: project } = await supabase.from('projects').select('*').eq('id', state.projectId).single();
   state.project = project;
   const { data: pc } = await supabase.from('project_characters')
     .select('character_id').eq('project_id', state.projectId);
-  (pc || []).forEach(r => state.myCharIds.add(r.character_id));
-
-  // recuperar tomas ya grabadas
+  (pc || []).forEach(r => state.myCharIds.add(r.character_id)); // pre-marca en el modal
   const { data: takes } = await supabase.from('takes').select('*').eq('project_id', state.projectId);
   (takes || []).forEach(t => {
     state.takes[t.dialogue_id] = {
       url: t.audio_url, offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile, saved: true,
     };
   });
-  await initStudio();
 }
 
+// ============ SELECCION DE PERSONAJES ============
+function renderCharModal() {
+  $('charOptions').innerHTML = state.characters.map(c => {
+    const mine = state.myCharIds.has(c.id);
+    const count = state.dialogues.filter(d => d.character_id === c.id).length;
+    return `
+    <label class="glass rounded-xl p-3 flex items-center gap-2 cursor-pointer hover:bg-white/10 transition ${mine?'ring-2 ring-violet-500':''}">
+      <input type="checkbox" value="${c.id}" class="char-check accent-violet-500 w-4 h-4" ${mine?'checked':''}>
+      <span class="w-3 h-3 rounded-full" style="background:${c.color}"></span>
+      <span class="text-sm font-medium flex-1">${c.name}</span>
+      <span class="text-[10px] text-slate-400">${count} líneas</span>
+    </label>`;
+  }).join('');
+  showModal('charModal');
+}
+
+$('startStudioBtn').addEventListener('click', async () => {
+  const checked = [...document.querySelectorAll('.char-check:checked')].map(cb => cb.value);
+  if (!checked.length) return alert('Elige al menos un personaje');
+  state.myCharIds = new Set(checked);
+  await ensureProject();
+  hideModal('charModal');
+  await initStudio();
+});
+
+// crea el proyecto si no existe, o sincroniza la seleccion si ya existe
+async function ensureProject() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!state.projectId) {
+    const { data: project } = await supabase.from('projects')
+      .insert({ scene_id: state.sceneId, user_id: user.id, title: state.scene.title })
+      .select().single();
+    state.project = project; state.projectId = project.id;
+  }
+  // sincronizar personajes elegidos
+  await supabase.from('project_characters').delete().eq('project_id', state.projectId);
+  const rows = [...state.myCharIds].map(cid => ({ project_id: state.projectId, character_id: cid }));
+  if (rows.length) await supabase.from('project_characters').insert(rows);
+}
 // ============ INICIALIZAR ESTUDIO ============
 async function initStudio() {
   const names = state.characters.filter(c => state.myCharIds.has(c.id)).map(c => c.name).join(', ');
@@ -158,8 +175,9 @@ function renderScript() {
 }
 
 function selectLine(index) {
-  state.active = index;
   const d = state.dialogues[index];
+  if (!d) return; // sin lineas, no hacer nada (evita crash)
+  state.active = index;
   document.querySelectorAll('.line-item').forEach((el,i)=>el.classList.toggle('line-active', i===index));
 
   const c = charOf(d);
