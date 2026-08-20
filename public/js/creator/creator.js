@@ -39,7 +39,7 @@ const trim = { in: 0, out: 0, dur: 0 };
 function setupTrimmer(duration) {
   trim.dur = duration;
   trim.in = 0;
-  trim.out = Math.min(30, duration);
+  trim.out = duration; // por defecto TODO el video; el usuario recorta si quiere
   const inR = $('inRange'), outR = $('outRange');
   inR.max = outR.max = duration;
   inR.value = trim.in;
@@ -211,13 +211,60 @@ function renderLines() {
           <span class="text-xs font-semibold" style="color:${info.color}">${info.name || u.speaker}</span>
           <span class="text-[11px] font-mono text-slate-400">${(u.start/1000).toFixed(1)}s \u2192 ${(u.end/1000).toFixed(1)}s</span>
         </div>
-        <input data-i="${i}" class="ln-text w-full bg-transparent border-b border-white/10 text-xs py-1"
-               value="${(u.text||'').replace(/"/g,'&quot;')}">
+        <input data-i="${i}" class="ln-text w-full bg-transparent border-b border-white/10 text-xs py-1 text-slate-400"
+               value="${(u.text||'').replace(/"/g,'&quot;')}" placeholder="Texto original">
+        <input data-i="${i}" class="ln-es w-full bg-transparent border-b border-cyan-400/30 text-xs py-1 mt-1"
+               value="${(u.translated||'').replace(/"/g,'&quot;')}" placeholder="Traducci\u00f3n al espa\u00f1ol">
       </div>`;
   }).join('');
   document.querySelectorAll('.ln-text').forEach(el =>
     el.addEventListener('input', e => state.utterances[+e.target.dataset.i].text = e.target.value));
+  document.querySelectorAll('.ln-es').forEach(el =>
+    el.addEventListener('input', e => state.utterances[+e.target.dataset.i].translated = e.target.value));
 }
+
+// ============ Detección de nombres (heurística) ============
+// Busca palabras que parecen nombres propios (mayuscula, no al inicio
+// de frase) y las sugiere a los hablantes. Es una ayuda, no es exacta.
+const STOP = new Set(['I','The','A','An','And','But','So','Oh','Hey','Yes','No','Ok','Okay','Well','Why','What','Who','How','When','Where','Mr','Mrs','God','Hi','Hello']);
+$('detectNamesBtn').addEventListener('click', () => {
+  const freq = {};
+  state.utterances.forEach(u => {
+    const words = (u.text || '').split(/\s+/);
+    words.forEach((w, idx) => {
+      const clean = w.replace(/[^A-Za-z]/g, '');
+      if (idx > 0 && /^[A-Z][a-z]{2,}$/.test(clean) && !STOP.has(clean)) {
+        freq[clean] = (freq[clean] || 0) + 1;
+      }
+    });
+  });
+  const names = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  const speakers = Object.keys(state.speakers);
+  if (!names.length) { $('mapStatus').textContent = 'No se detectaron nombres; deja Personaje A/B.'; return; }
+  speakers.forEach((sp, i) => { if (names[i]) state.speakers[sp].name = names[i]; });
+  renderSpeakers(); renderLines();
+  $('mapStatus').textContent = `Sugeridos: ${names.slice(0, speakers.length).join(', ')} (ajusta si hace falta)`;
+});
+
+// ============ Traducción automática al español (MyMemory, gratis) ============
+$('translateBtn').addEventListener('click', async () => {
+  const btn = $('translateBtn'); btn.disabled = true;
+  const total = state.utterances.length;
+  for (let i = 0; i < total; i++) {
+    const u = state.utterances[i];
+    if (!u.text) continue;
+    $('mapStatus').textContent = `Traduciendo ${i + 1}/${total}...`;
+    try {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(u.text)}&langpair=en|es-419`;
+      const res = await fetch(url);
+      const data = await res.json();
+      u.translated = data?.responseData?.translatedText || u.translated || '';
+    } catch { /* sigue con las demas */ }
+    renderLines();
+  }
+  $('mapStatus').textContent = '\u2705 Traducido (revisa y ajusta el español)';
+  btn.disabled = false;
+});
 
 // ============ Publicar ============
 $('publishBtn').addEventListener('click', async () => {
@@ -239,21 +286,27 @@ $('publishBtn').addEventListener('click', async () => {
 
     // personajes desde el mapeo validado
     st.textContent = 'Guardando personajes...';
-    const charRows = Object.values(state.speakers).map(s => ({ scene_id: scene.id, name: s.name, color: s.color }));
+    // mapear por HABLANTE (no por nombre, que puede repetirse)
+    const speakerEntries = Object.entries(state.speakers); // [[sp, info], ...]
+    const charRows = speakerEntries.map(([sp, info]) => ({
+      scene_id: scene.id, name: (info.name || `Personaje ${sp}`).trim(), color: info.color,
+    }));
     const { data: chars, error: e2 } = await supabase.from('characters').insert(charRows).select();
     if (e2) throw e2;
-    const nameToId = Object.fromEntries(chars.map(c => [c.name, c.id]));
+    // el insert conserva el orden -> speaker -> id
+    const speakerToId = {};
+    speakerEntries.forEach(([sp], idx) => { speakerToId[sp] = chars[idx].id; });
 
     // dialogos desde las utterances
     st.textContent = 'Guardando di\u00e1logos...';
     const dlgRows = state.utterances.map((u, i) => ({
       scene_id: scene.id,
-      character_id: nameToId[state.speakers[u.speaker].name],
+      character_id: speakerToId[u.speaker],
       line_order: i + 1,
       start_time: +(u.start / 1000).toFixed(2),
       end_time: +(u.end / 1000).toFixed(2),
       original_text: u.text,
-      translated_text: '',
+      translated_text: u.translated || '',
     }));
     if (dlgRows.length) {
       const { error: e3 } = await supabase.from('dialogues').insert(dlgRows);
