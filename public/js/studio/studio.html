@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estudio de Doblaje</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/wavesurfer.js@7"></script>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body class="text-slate-100">
+
+  <!-- HEADER + PROGRESO -->
+  <header class="glass sticky top-0 z-20 px-4 sm:px-6 py-3">
+    <div class="flex items-center justify-between">
+      <a href="/dashboard.html" class="flex items-center gap-2 hover:opacity-80">
+        <span class="text-xl">&larr;</span><span class="text-2xl">&#127897;&#65039;</span>
+        <div>
+          <h1 id="sceneTitle" class="font-bold leading-tight">Cargando...</h1>
+          <p id="myChars" class="text-xs text-slate-400">&mdash;</p>
+        </div>
+      </a>
+      <div class="flex items-center gap-2">
+        <button id="saveBtn" class="glass px-3 py-2 rounded-lg text-sm hover:bg-white/10">&#128190;</button>
+        <button id="exportBtn" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">&#127916; Exportar</button>
+      </div>
+    </div>
+    <div class="mt-2 flex items-center gap-3">
+      <div class="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+        <div id="xpBar" class="xp-bar h-full bg-gradient-to-r from-violet-500 to-cyan-400" style="width:0%"></div>
+      </div>
+      <span id="xpLabel" class="text-xs font-mono text-slate-300">0/0</span>
+    </div>
+  </header>
+
+  <!-- MODAL SELECCION DE PERSONAJES -->
+  <div id="charModal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/70 p-4">
+    <div class="glass-strong rounded-3xl p-7 max-w-md w-full">
+      <div class="text-center mb-4">
+        <div class="text-4xl mb-2">&#127917;</div>
+        <h2 class="text-xl font-bold mb-1">&iquest;A qu&eacute; personaje le pones voz?</h2>
+        <p class="text-sm text-slate-400">Toca uno o varios. Grabar&aacute;s sus l&iacute;neas por secciones.</p>
+      </div>
+      <div id="charOptions" class="grid grid-cols-1 gap-2 mb-6"></div>
+      <button id="startStudioBtn" class="btn-primary w-full py-3 rounded-xl font-semibold">Entrar al estudio &rarr;</button>
+    </div>
+  </div>
+
+  <!-- OVERLAY CUENTA REGRESIVA -->
+  <div id="countdownOverlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80">
+    <div class="text-center">
+      <span id="countdownNum" class="countdown text-white">3</span>
+      <p id="countdownHint" class="text-slate-300 mt-2">Preparando...</p>
+    </div>
+  </div>
+
+  <main class="max-w-5xl mx-auto p-4 space-y-4">
+
+    <!-- Video -->
+    <div class="glass rounded-2xl p-2">
+      <video id="videoPlayer" class="w-full rounded-xl bg-black aspect-video" playsinline></video>
+    </div>
+
+    <!-- ONDAS: original arriba, la tuya abajo (visibles al grabar) -->
+    <div class="glass rounded-2xl p-4 space-y-3">
+      <div>
+        <div class="flex justify-between mb-1">
+          <span class="text-xs uppercase tracking-wide text-slate-400">Original (gu&iacute;a)</span>
+          <span id="timecodeDisplay" class="text-xs font-mono text-violet-300">00:00.000</span>
+        </div>
+        <div id="waveOriginal"></div>
+      </div>
+      <div>
+        <span class="text-xs uppercase tracking-wide text-slate-400">Tu grabaci&oacute;n</span>
+        <div id="waveTake" class="mt-1"></div>
+      </div>
+    </div>
+
+    <!-- TARJETA DE LINEA ACTUAL -->
+    <div id="lineCard" class="glass-strong rounded-2xl p-6 text-center relative overflow-hidden">
+      <div class="flex items-center justify-center gap-2 mb-1 text-xs">
+        <span id="sectionTag" class="px-2 py-0.5 rounded-full bg-white/10"></span>
+      </div>
+      <div class="flex items-center justify-center gap-2 mb-3">
+        <span id="lineCharDot" class="w-4 h-4 rounded-full" style="background:#8b5cf6"></span>
+        <span id="lineCharName" class="font-semibold">&mdash;</span>
+        <span id="lineTimecode" class="text-xs font-mono text-slate-400 ml-2">00:00 &rarr; 00:00</span>
+      </div>
+      <p id="karaokeText" class="karaoke-text mb-2">Selecciona un personaje para empezar</p>
+      <p id="originalText" class="text-sm text-slate-400 italic"></p>
+      <div class="mt-4 h-1.5 rounded-full bg-white/10 overflow-hidden">
+        <div id="lineProgress" class="h-full bg-cyan-400" style="width:0%"></div>
+      </div>
+      <div id="reward" class="hidden mt-4 reward-badge text-emerald-400 font-bold text-lg"></div>
+    </div>
+
+    <!-- BOTON GIGANTE + navegacion -->
+    <div class="text-center">
+      <button id="megaBtn"
+        class="btn-primary w-full sm:w-96 mx-auto py-5 rounded-2xl text-xl font-bold flex items-center justify-center gap-3">
+        <span class="w-5 h-5 rounded-full bg-white"></span> Grabar esta l&iacute;nea
+      </button>
+      <div class="mt-2 flex justify-center gap-2">
+        <button id="prevBtn" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10">&#9664; Anterior</button>
+        <button id="listenBtn" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10 hidden">&#9654; Escuchar</button>
+        <button id="nextBtn" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10">Siguiente &#9654;</button>
+      </div>
+    </div>
+
+    <!-- DESGLOSE DE PERSONAJES -->
+    <div class="glass rounded-2xl p-4">
+      <h3 class="text-sm font-semibold mb-2">&#127909; Personajes de esta sesi&oacute;n</h3>
+      <div id="charBreakdown" class="space-y-2"></div>
+    </div>
+
+    <!-- LIBRETO (por secciones) -->
+    <div class="glass rounded-2xl p-4">
+      <h3 class="text-sm font-semibold mb-2">&#128220; Libreto</h3>
+      <div id="scriptList" class="space-y-2 max-h-96 overflow-y-auto thin-scroll pr-1"></div>
+    </div>
+
+    <!-- POST-PRODUCCION: filtro de voz + ajustes (despues de grabar) -->
+    <details class="glass rounded-2xl p-4">
+      <summary class="cursor-pointer text-sm font-semibold">&#127898; Post-producci&oacute;n (filtro de voz y ajustes)</summary>
+      <p class="text-xs text-slate-400 mt-2 mb-3">Aplica esto <b>despu&eacute;s</b> de grabar. Elige una l&iacute;nea en el libreto y ajusta su filtro, volumen o sincron&iacute;a.</p>
+      <div id="profileRow" class="flex gap-2 overflow-x-auto thin-scroll pb-1 mb-3"></div>
+      <div class="flex items-center gap-2 text-xs mb-2">
+        <span>Volumen</span>
+        <input id="gainSlider" type="range" min="-12" max="12" value="0" class="flex-1 accent-violet-500">
+        <span id="gainVal" class="font-mono w-10 text-right">0dB</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs">
+        <span>&#9201;&#65039; Lip-sync</span>
+        <input id="offsetSlider" type="range" min="-500" max="500" value="0" class="flex-1 accent-cyan-400">
+        <span id="offsetVal" class="font-mono w-14 text-right">0 ms</span>
+      </div>
+    </details>
+  </main>
+
+  <!-- Modal de exportacion -->
+  <div id="exportModal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/70 p-4">
+    <div class="glass-strong rounded-3xl p-7 max-w-md w-full text-center">
+      <h2 class="text-xl font-bold mb-3">&#127916; Exportando tu doblaje</h2>
+      <div id="exportStatus" class="text-sm text-slate-300 mb-4">Preparando...</div>
+      <div class="h-2 rounded-full bg-white/10 overflow-hidden mb-4">
+        <div id="exportBar" class="xp-bar h-full bg-cyan-400" style="width:0%"></div>
+      </div>
+      <a id="downloadLink" class="btn-primary px-5 py-3 rounded-xl font-semibold hidden inline-block">&#11015;&#65039; Descargar MP4</a>
+      <button id="closeExport" class="block mx-auto mt-3 text-sm text-slate-400 hover:text-white">Cerrar</button>
+    </div>
+  </div>
+
+  <script type="module" src="/js/studio/studio.js"></script>
+  <script type="module" src="/js/lib/version.js"></script>
+</body>
+</html>
