@@ -391,10 +391,10 @@ function countdown() {
   });
 }
 
-const showModal = (id) => { $(id).classList.remove('hidden'); $(id).classList.add('flex'); };
-const hideModal = (id) => { $(id).classList.add('hidden'); $(id).classList.remove('flex'); };
-const showOverlay = (el) => { el.classList.remove('hidden'); el.classList.add('flex'); };
-const hideOverlay = (el) => { el.classList.add('hidden'); el.classList.remove('flex'); };
+function showModal(id) { $(id).classList.remove('hidden'); $(id).classList.add('flex'); }
+function hideModal(id) { $(id).classList.add('hidden'); $(id).classList.remove('flex'); }
+function showOverlay(el) { el.classList.remove('hidden'); el.classList.add('flex'); }
+function hideOverlay(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
 
 const fmt = (s) => {
   const m = Math.floor(s/60), sec = (s%60).toFixed(1).padStart(4,'0');
