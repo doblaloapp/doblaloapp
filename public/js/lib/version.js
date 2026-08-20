@@ -4,8 +4,8 @@
 // para verificar (abajo a la derecha en la pantalla) que Vercel
 // ya sirvio la version nueva y no una cacheada.
 // ============================================================
-export const APP_VERSION = 'v1.4.1';
-export const APP_BUILD = '2026-08-20 · estudio robusto + panel personajes'
+export const APP_VERSION = 'v1.4.2';
+export const APP_BUILD = '2026-08-20 · diagnóstico de carga'
 
 function injectBadge() {
   if (document.getElementById('appVersionBadge')) return;
