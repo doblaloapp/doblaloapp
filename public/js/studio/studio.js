@@ -13,26 +13,32 @@ const qs = new URLSearchParams(location.search);
 const state = {
   sceneId: qs.get('scene'),
   projectId: qs.get('project'),
-  scene: null, characters: [], dialogues: [],
+  scene: null, characters: [], charById: {}, dialogues: [],
   myCharIds: new Set(),
+  selectedChars: [],   // personajes elegidos, en orden
+  myLines: [],         // lineas filtradas y ordenadas por seccion
+  sections: [],        // [{char, from, to}] indices en myLines
   active: 0,
-  takes: {},        // dialogueId -> { blob, url, offset_ms, gain_db, voice_profile }
+  takes: {},
   project: null,
 };
 
 const recorder = new LineRecorder();
 const preview = new PreviewPlayer();
 let waveOriginal, waveTake;
-let currentProfile = 'natural';
+
+// helpers de modal/overlay (function = hoisting seguro)
+function showModal(id) { $(id).classList.remove('hidden'); $(id).classList.add('flex'); }
+function hideModal(id) { $(id).classList.add('hidden'); $(id).classList.remove('flex'); }
+function showOverlay(el) { el.classList.remove('hidden'); el.classList.add('flex'); }
+function hideOverlay(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+const charOf = (d) => state.charById[d.character_id] || { name: '¿?', color: '#94a3b8' };
+const fmt = (s) => { const m = Math.floor(s/60), sec = (s%60).toFixed(1).padStart(4,'0'); return `${String(m).padStart(2,'0')}:${sec}`; };
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 await requireAuth();
-try {
-  await loadScene();
-} catch (e) {
-  console.error('loadScene error:', e);
-  $('karaokeText').textContent = 'Error al cargar la escena';
-  $('originalText').textContent = String(e.message || e);
-}
+try { await loadScene(); }
+catch (e) { console.error('loadScene error:', e); $('karaokeText').textContent = 'Error al cargar la escena'; $('originalText').textContent = String(e.message || e); }
 
 // ============ CARGA ============
 async function loadScene() {
@@ -44,42 +50,34 @@ async function loadScene() {
 
   const { data: chars } = await supabase.from('characters').select('*').eq('scene_id', state.sceneId);
   state.characters = chars || [];
-  // mapa id->personaje para resolver de forma segura (evita crash si falta el embed)
   state.charById = Object.fromEntries(state.characters.map(c => [c.id, c]));
 
-  const { data: lines } = await supabase.from('dialogues')
-    .select('*').eq('scene_id', state.sceneId).order('line_order');
+  const { data: lines } = await supabase.from('dialogues').select('*')
+    .eq('scene_id', state.sceneId).order('line_order');
   state.dialogues = lines || [];
 
-  // DIAGNOSTICO visible en el encabezado (personajes / lineas cargados)
   const nc = state.characters.length, nd = state.dialogues.length;
   $('myChars').textContent = `Escena: ${nc} personajes · ${nd} líneas`;
 
-  // Sin personajes: la escena quedo incompleta al crearla
   if (!nc) {
     $('karaokeText').textContent = 'Esta escena no tiene personajes guardados.';
-    $('originalText').textContent = 'Créala de nuevo con el análisis de IA (paso 3 del creador).';
+    $('originalText').textContent = 'Créala de nuevo con el análisis de IA.';
     $('megaBtn').disabled = true; $('megaBtn').style.opacity = '.4';
     return;
   }
 
-  // Hay personajes -> mostrar el panel SIEMPRE (aunque falten lineas)
   if (state.projectId) { await preloadProject(); }
   renderCharModal();
 }
 
-// carga proyecto existente sin saltarse el panel de seleccion
 async function preloadProject() {
   const { data: project } = await supabase.from('projects').select('*').eq('id', state.projectId).single();
   state.project = project;
-  const { data: pc } = await supabase.from('project_characters')
-    .select('character_id').eq('project_id', state.projectId);
-  (pc || []).forEach(r => state.myCharIds.add(r.character_id)); // pre-marca en el modal
+  const { data: pc } = await supabase.from('project_characters').select('character_id').eq('project_id', state.projectId);
+  (pc || []).forEach(r => state.myCharIds.add(r.character_id));
   const { data: takes } = await supabase.from('takes').select('*').eq('project_id', state.projectId);
   (takes || []).forEach(t => {
-    state.takes[t.dialogue_id] = {
-      url: t.audio_url, offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile, saved: true,
-    };
+    state.takes[t.dialogue_id] = { url: t.audio_url, offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile, saved: true };
   });
 }
 
@@ -108,24 +106,26 @@ $('startStudioBtn').addEventListener('click', async () => {
   await initStudio();
 });
 
-// crea el proyecto si no existe, o sincroniza la seleccion si ya existe
 async function ensureProject() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!state.projectId) {
     const { data: project } = await supabase.from('projects')
-      .insert({ scene_id: state.sceneId, user_id: user.id, title: state.scene.title })
-      .select().single();
+      .insert({ scene_id: state.sceneId, user_id: user.id, title: state.scene.title }).select().single();
     state.project = project; state.projectId = project.id;
   }
-  // sincronizar personajes elegidos
   await supabase.from('project_characters').delete().eq('project_id', state.projectId);
   const rows = [...state.myCharIds].map(cid => ({ project_id: state.projectId, character_id: cid }));
   if (rows.length) await supabase.from('project_characters').insert(rows);
 }
-// ============ INICIALIZAR ESTUDIO ============
+
+// ============ INICIALIZAR ============
 async function initStudio() {
-  const names = state.characters.filter(c => state.myCharIds.has(c.id)).map(c => c.name).join(', ');
-  $('myChars').textContent = `Doblas: ${names}`;
+  // personajes elegidos, en el orden en que aparecen en la lista
+  state.selectedChars = state.characters.filter(c => state.myCharIds.has(c.id));
+  $('myChars').textContent = `Doblas: ${state.selectedChars.map(c => c.name).join(', ')}`;
+
+  // construir myLines por SECCIONES (todas las de personaje 1, luego personaje 2, ...)
+  buildMyLines();
 
   try { await recorder.init(); }
   catch { alert('Necesito permiso del micrófono para grabar 🎙️'); }
@@ -135,12 +135,30 @@ async function initStudio() {
 
   renderProfiles();
   renderScript();
+  renderBreakdown();
   bindControls();
   goToFirstPending();
   updateXP();
 }
 
-// ============ FILTROS DE VOZ ============
+function buildMyLines() {
+  state.myLines = [];
+  state.sections = [];
+  state.selectedChars.forEach(c => {
+    const lines = state.dialogues.filter(d => d.character_id === c.id);
+    if (!lines.length) return;
+    const from = state.myLines.length;
+    state.myLines.push(...lines);
+    state.sections.push({ char: c, from, to: state.myLines.length - 1 });
+  });
+}
+
+function sectionOf(index) {
+  return state.sections.find(s => index >= s.from && index <= s.to);
+}
+
+// ============ FILTROS DE VOZ (POST) ============
+let currentProfile = 'natural';
 function renderProfiles() {
   $('profileRow').innerHTML = PROFILES.map(p => `
     <div class="profile-card glass rounded-xl px-3 py-2 min-w-[84px] text-center ${p.id===currentProfile?'selected':''}"
@@ -152,147 +170,183 @@ function renderProfiles() {
     el.addEventListener('click', () => {
       currentProfile = el.dataset.id;
       document.querySelectorAll('.profile-card').forEach(c => c.classList.toggle('selected', c===el));
-      const d = state.dialogues[state.active];
-      if (state.takes[d.id]) {
-        state.takes[d.id].voice_profile = currentProfile;
-        previewCurrent(); // deja escuchar el filtro al instante
-      }
+      const d = state.myLines[state.active];
+      if (d && state.takes[d.id]) { state.takes[d.id].voice_profile = currentProfile; saveTakeMeta(d); previewCurrent(); }
     });
   });
 }
 
-// resuelve el personaje de una linea de forma segura
-const charOf = (d) => state.charById[d.character_id] || { name: '¿?', color: '#94a3b8' };
-
-// ============ LIBRETO ============
+// ============ LIBRETO POR SECCIONES ============
 function renderScript() {
-  $('scriptList').innerHTML = state.dialogues.map((d, i) => {
-    const mine = state.myCharIds.has(d.character_id);
-    const done = !!state.takes[d.id];
-    const c = charOf(d);
-    return `
-      <div class="line-item rounded-lg p-2.5 cursor-pointer transition ${mine?'':'opacity-40'} ${done?'line-done':''}"
-           data-index="${i}">
-        <div class="flex justify-between items-center">
-          <span class="text-xs font-semibold" style="color:${c.color}">${c.name}</span>
-          <span class="take-status text-[11px] text-slate-500">${done?'✅':(mine?'· pendiente':'')}</span>
-        </div>
-        <p class="text-sm truncate">${d.translated_text || d.original_text || '—'}</p>
-      </div>`;
-  }).join('');
+  let html = '';
+  state.sections.forEach(sec => {
+    html += `<div class="text-xs font-bold uppercase tracking-wide mt-3 mb-1" style="color:${sec.char.color}">
+      ▸ ${sec.char.name}</div>`;
+    for (let i = sec.from; i <= sec.to; i++) {
+      const d = state.myLines[i];
+      const done = !!state.takes[d.id];
+      html += `
+        <div class="line-item rounded-lg p-2.5 cursor-pointer transition ${done?'line-done':''}" data-index="${i}">
+          <div class="flex justify-between items-center">
+            <span class="text-[11px] font-mono text-slate-400">${fmt(d.start_time)} → ${fmt(d.end_time)}</span>
+            <span class="take-status text-[11px] text-slate-500">${done?'✅':'· pendiente'}</span>
+          </div>
+          <p class="text-sm">${d.translated_text || d.original_text || '—'}</p>
+          ${d.translated_text && d.original_text ? `<p class="text-[11px] text-slate-500 italic">${d.original_text}</p>` : ''}
+        </div>`;
+    }
+  });
+  $('scriptList').innerHTML = html;
   document.querySelectorAll('.line-item').forEach(el =>
     el.addEventListener('click', () => selectLine(+el.dataset.index)));
 }
 
 function selectLine(index) {
-  const d = state.dialogues[index];
-  if (!d) return; // sin lineas, no hacer nada (evita crash)
+  const d = state.myLines[index];
+  if (!d) return;
   state.active = index;
-  document.querySelectorAll('.line-item').forEach((el,i)=>el.classList.toggle('line-active', i===index));
+  document.querySelectorAll('.line-item').forEach(el => el.classList.toggle('line-active', +el.dataset.index===index));
 
+  const sec = sectionOf(index);
   const c = charOf(d);
+  $('sectionTag').textContent = sec ? `Sección: ${sec.char.name} (${index - sec.from + 1}/${sec.to - sec.from + 1})` : '';
   $('lineCharName').textContent = c.name;
   $('lineCharDot').style.background = c.color;
   $('lineTimecode').textContent = `${fmt(d.start_time)} → ${fmt(d.end_time)}`;
+  // español como línea a doblar; inglés como referencia
   $('karaokeText').textContent = d.translated_text || d.original_text || '—';
-  $('originalText').textContent = d.original_text ? `(${d.original_text})` : '';
+  $('originalText').textContent = d.original_text && d.translated_text ? `(${d.original_text})` : '';
   $('lineProgress').style.width = '0%';
   $('reward').classList.add('hidden');
-
   $('videoPlayer').currentTime = d.start_time;
 
   const t = state.takes[d.id];
   $('listenBtn').classList.toggle('hidden', !t);
   if (t) {
-    $('offsetSlider').value = t.offset_ms || 0;
-    $('offsetVal').textContent = `${t.offset_ms||0} ms`;
-    $('gainSlider').value = t.gain_db || 0;
-    $('gainVal').textContent = `${t.gain_db||0}dB`;
+    $('offsetSlider').value = t.offset_ms || 0; $('offsetVal').textContent = `${t.offset_ms||0} ms`;
+    $('gainSlider').value = t.gain_db || 0; $('gainVal').textContent = `${t.gain_db||0}dB`;
     if (t.blob) waveTake.loadBlob(t.blob);
   }
-
-  const mine = state.myCharIds.has(d.character_id);
-  $('megaBtn').disabled = !mine;
-  $('megaBtn').style.opacity = mine ? '1' : '.4';
 }
 
 function goToFirstPending() {
-  const idx = state.dialogues.findIndex(d => state.myCharIds.has(d.character_id) && !state.takes[d.id]);
+  const idx = state.myLines.findIndex(d => !state.takes[d.id]);
   selectLine(idx >= 0 ? idx : 0);
 }
 
-// ============ CONTROLES / GRABACION GUIADA ============
+// ============ DESGLOSE DE PERSONAJES ============
+function renderBreakdown() {
+  $('charBreakdown').innerHTML = state.sections.map(sec => {
+    const total = sec.to - sec.from + 1;
+    let done = 0;
+    for (let i = sec.from; i <= sec.to; i++) if (state.takes[state.myLines[i].id]) done++;
+    const pct = Math.round((done/total)*100);
+    const complete = done === total;
+    return `
+      <div class="glass rounded-xl p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-3 h-3 rounded-full" style="background:${sec.char.color}"></span>
+          <span class="text-sm font-medium flex-1">${sec.char.name}</span>
+          <span class="text-xs text-slate-400">${done}/${total}</span>
+          ${complete
+            ? '<span class="text-xs text-emerald-400 font-semibold">✅ Completo</span>'
+            : `<button class="rec-char btn-primary px-3 py-1 rounded-lg text-xs" data-from="${sec.from}">Grabar</button>`}
+        </div>
+        <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+          <div class="h-full ${complete?'bg-emerald-400':'bg-violet-500'}" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+  }).join('');
+  document.querySelectorAll('.rec-char').forEach(b => b.addEventListener('click', () => {
+    const from = +b.dataset.from, sec = sectionOf(from);
+    // salta a la primera pendiente de esa seccion
+    let target = from;
+    for (let i = sec.from; i <= sec.to; i++) { if (!state.takes[state.myLines[i].id]) { target = i; break; } }
+    selectLine(target);
+    $('lineCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+}
+
+// ============ CONTROLES / GRABACION con PRE-ROLL de 3s ============
 function bindControls() {
   $('megaBtn').addEventListener('click', onMegaClick);
   $('prevBtn').addEventListener('click', () => selectLine(Math.max(0, state.active-1)));
-  $('nextBtn').addEventListener('click', () => selectLine(Math.min(state.dialogues.length-1, state.active+1)));
+  $('nextBtn').addEventListener('click', () => selectLine(Math.min(state.myLines.length-1, state.active+1)));
   $('listenBtn').addEventListener('click', previewCurrent);
   $('saveBtn').addEventListener('click', saveAll);
   $('exportBtn').addEventListener('click', doExport);
+  $('closeExport').addEventListener('click', () => hideModal('exportModal'));
 
   $('offsetSlider').addEventListener('input', e => {
     $('offsetVal').textContent = `${e.target.value} ms`;
-    const d = state.dialogues[state.active];
-    if (state.takes[d.id]) state.takes[d.id].offset_ms = +e.target.value;
+    const d = state.myLines[state.active]; if (d && state.takes[d.id]) { state.takes[d.id].offset_ms = +e.target.value; saveTakeMeta(d); }
   });
   $('gainSlider').addEventListener('input', e => {
     $('gainVal').textContent = `${e.target.value}dB`;
-    const d = state.dialogues[state.active];
-    if (state.takes[d.id]) state.takes[d.id].gain_db = +e.target.value;
+    const d = state.myLines[state.active]; if (d && state.takes[d.id]) { state.takes[d.id].gain_db = +e.target.value; saveTakeMeta(d); }
   });
 
-  $('closeExport').addEventListener('click', () => hideModal('exportModal'));
+  $('videoPlayer').addEventListener('timeupdate', () => {
+    $('timecodeDisplay').textContent = fmt($('videoPlayer').currentTime);
+  });
 }
 
-let recording = false;
+let recording = false, armed = false;
 async function onMegaClick() {
-  if (recording) return stopRecording();
-  const d = state.dialogues[state.active];
+  if (recording || armed) return stopRecording();
+  const d = state.myLines[state.active];
+  if (!d) return;
   const video = $('videoPlayer');
 
-  // Cuenta regresiva 3-2-1
-  await countdown();
-  video.currentTime = Math.max(0, d.start_time - 0.15);
+  await countdown();            // 3 - 2 - 1
+  armed = true;
+  // colocarse 3 segundos ANTES para alistarse
+  video.currentTime = Math.max(0, d.start_time - 3);
   await video.play();
-  recorder.start();
-  recording = true;
-  $('megaBtn').classList.add('rec-pulse');
-  $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-white"></span> Detener';
+  $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-yellow-300"></span> Prepárate...';
 
-  // barra de progreso dentro de la linea + auto-stop
   const dur = d.end_time - d.start_time;
-  const tick = () => {
-    if (!recording) return;
-    const p = Math.min(100, ((video.currentTime - d.start_time) / dur) * 100);
-    $('lineProgress').style.width = `${Math.max(0,p)}%`;
-    if (video.currentTime >= d.end_time) return stopRecording();
-    requestAnimationFrame(tick);
+  const loop = () => {
+    if (!armed && !recording) return;
+    const t = video.currentTime;
+    // arrancar grabacion justo al inicio real de la linea
+    if (!recording && t >= d.start_time) {
+      recorder.start(); recording = true;
+      $('megaBtn').classList.add('rec-pulse');
+      $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-white"></span> Detener';
+    }
+    if (recording) {
+      const p = Math.min(100, ((t - d.start_time) / dur) * 100);
+      $('lineProgress').style.width = `${Math.max(0,p)}%`;
+    }
+    if (t >= d.end_time) { stopRecording(); return; }
+    requestAnimationFrame(loop);
   };
-  requestAnimationFrame(tick);
+  requestAnimationFrame(loop);
 }
 
 async function stopRecording() {
-  const video = $('videoPlayer');
-  video.pause();
-  const blob = await recorder.stop();
-  recording = false;
+  const video = $('videoPlayer'); video.pause();
+  const wasRecording = recording;
+  armed = false; recording = false;
   $('megaBtn').classList.remove('rec-pulse');
   $('megaBtn').innerHTML = '<span class="w-5 h-5 rounded-full bg-white"></span> Grabar de nuevo';
   $('lineProgress').style.width = '100%';
-  if (blob) await handleTake(blob);
+  if (wasRecording) {
+    const blob = await recorder.stop();
+    if (blob) await handleTake(blob);
+  }
 }
 
 async function handleTake(blob) {
-  const d = state.dialogues[state.active];
+  const d = state.myLines[state.active];
   const url = URL.createObjectURL(blob);
-  state.takes[d.id] = {
-    blob, url, offset_ms: 0, gain_db: 0, voice_profile: currentProfile, saved: false,
-  };
+  state.takes[d.id] = { blob, url, offset_ms: 0, gain_db: 0, voice_profile: 'natural', saved: false };
   waveTake.loadBlob(blob);
   showReward();
   $('listenBtn').classList.remove('hidden');
-  updateScriptRow(state.active);
-  updateXP();
+  renderScript(); renderBreakdown(); updateXP();
+  selectLine(state.active); // refresca resaltado
   await uploadTake(d, blob);
 }
 
@@ -301,8 +355,7 @@ async function uploadTake(dialogue, blob) {
   const path = `${user.id}/${state.projectId}/${dialogue.id}.webm`;
   await supabase.storage.from(BUCKETS.userTakes).upload(path, blob, { upsert: true, contentType: blob.type });
   const { data: pub } = supabase.storage.from(BUCKETS.userTakes).getPublicUrl(path);
-  const t = state.takes[dialogue.id];
-  t.url = pub.publicUrl; t.saved = true;
+  const t = state.takes[dialogue.id]; t.url = pub.publicUrl; t.saved = true;
   await supabase.from('takes').upsert({
     project_id: state.projectId, dialogue_id: dialogue.id, audio_url: pub.publicUrl,
     offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile,
@@ -310,40 +363,32 @@ async function uploadTake(dialogue, blob) {
   }, { onConflict: 'project_id,dialogue_id' });
 }
 
+async function saveTakeMeta(dialogue) {
+  const t = state.takes[dialogue.id]; if (!t || !t.saved) return;
+  await supabase.from('takes').update({ offset_ms: t.offset_ms, gain_db: t.gain_db, voice_profile: t.voice_profile })
+    .eq('project_id', state.projectId).eq('dialogue_id', dialogue.id);
+}
+
 async function previewCurrent() {
-  const d = state.dialogues[state.active];
-  const t = state.takes[d.id];
-  if (!t) return;
-  let blob = t.blob;
-  if (!blob && t.url) blob = await (await fetch(t.url)).blob();
-  await preview.play(blob, t.voice_profile || currentProfile, t.gain_db || 0);
+  const d = state.myLines[state.active]; const t = state.takes[d.id]; if (!t) return;
+  let blob = t.blob; if (!blob && t.url) blob = await (await fetch(t.url)).blob();
+  await preview.play(blob, t.voice_profile || 'natural', t.gain_db || 0);
 }
 
 // ============ RECOMPENSA / XP ============
 function showReward() {
   const msgs = ['¡Buena toma! 🌟','¡Perfecto! 🎯','¡Suena genial! 🔥','¡Nivel actor! 🎭','¡Increíble! ✨'];
-  const r = $('reward');
-  r.textContent = msgs[Math.floor(Math.random()*msgs.length)];
-  r.classList.remove('hidden');
-  void r.offsetWidth; // reinicia animacion
-  r.classList.remove('reward-badge'); void r.offsetWidth; r.classList.add('reward-badge');
+  const r = $('reward'); r.textContent = msgs[Math.floor(Math.random()*msgs.length)];
+  r.classList.remove('hidden'); r.classList.remove('reward-badge'); void r.offsetWidth; r.classList.add('reward-badge');
 }
 
 function updateXP() {
-  const mine = state.dialogues.filter(d => state.myCharIds.has(d.character_id));
-  const done = mine.filter(d => state.takes[d.id]).length;
-  const pct = mine.length ? Math.round((done/mine.length)*100) : 0;
+  const total = state.myLines.length;
+  const done = state.myLines.filter(d => state.takes[d.id]).length;
+  const pct = total ? Math.round((done/total)*100) : 0;
   $('xpBar').style.width = `${pct}%`;
-  $('xpLabel').textContent = `${done}/${mine.length}`;
-  supabase.from('projects').update({ progress: pct, updated_at: new Date().toISOString() })
-    .eq('id', state.projectId).then(()=>{});
-}
-
-function updateScriptRow(index) {
-  const el = document.querySelector(`.line-item[data-index="${index}"]`);
-  if (!el) return;
-  el.classList.add('line-done');
-  el.querySelector('.take-status').textContent = '✅';
+  $('xpLabel').textContent = `${done}/${total}`;
+  supabase.from('projects').update({ progress: pct, updated_at: new Date().toISOString() }).eq('id', state.projectId).then(()=>{});
 }
 
 async function saveAll() {
@@ -357,48 +402,27 @@ async function doExport() {
   showModal('exportModal');
   try {
     const finalUrl = await exportProject({
-      scene: state.scene, dialogues: state.dialogues, takes: state.takes,
-      projectId: state.projectId,
-      onProgress: (pct, label) => {
-        $('exportBar').style.width = `${pct}%`;
-        if (label) $('exportStatus').textContent = label;
-      },
+      scene: state.scene, dialogues: state.dialogues, takes: state.takes, projectId: state.projectId,
+      onProgress: (pct, label) => { $('exportBar').style.width = `${pct}%`; if (label) $('exportStatus').textContent = label; },
     });
     $('exportStatus').textContent = '¡Listo! 🎉';
-    const link = $('downloadLink');
-    link.href = finalUrl; link.download = `${state.scene.title}.mp4`;
-    link.classList.remove('hidden');
+    const link = $('downloadLink'); link.href = finalUrl; link.download = `${state.scene.title}.mp4`; link.classList.remove('hidden');
     await supabase.from('projects').update({ status:'completed', final_video_url: finalUrl }).eq('id', state.projectId);
-  } catch (e) {
-    console.error(e);
-    $('exportStatus').textContent = 'Error al exportar: ' + e.message;
-  }
+  } catch (e) { console.error(e); $('exportStatus').textContent = 'Error al exportar: ' + e.message; }
 }
 
-// ============ UTILS / OVERLAYS ============
+// ============ CUENTA REGRESIVA ============
 function countdown() {
   return new Promise(resolve => {
-    const ov = $('countdownOverlay'), num = $('countdownNum');
-    let n = 3;
-    showOverlay(ov); num.textContent = n;
+    const ov = $('countdownOverlay'), num = $('countdownNum'), hint = $('countdownHint');
+    hint.textContent = 'Prepárate para grabar';
+    let n = 3; showOverlay(ov); num.textContent = n;
     const iv = setInterval(() => {
       n--;
-      if (n === 0) { num.textContent = '🎬'; }
+      if (n === 0) num.textContent = '🎬';
       else if (n < 0) { clearInterval(iv); hideOverlay(ov); resolve(); return; }
-      else { num.textContent = n; }
+      else num.textContent = n;
       num.classList.remove('countdown'); void num.offsetWidth; num.classList.add('countdown');
     }, 700);
   });
 }
-
-function showModal(id) { $(id).classList.remove('hidden'); $(id).classList.add('flex'); }
-function hideModal(id) { $(id).classList.add('hidden'); $(id).classList.remove('flex'); }
-function showOverlay(el) { el.classList.remove('hidden'); el.classList.add('flex'); }
-function hideOverlay(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
-
-const fmt = (s) => {
-  const m = Math.floor(s/60), sec = (s%60).toFixed(1).padStart(4,'0');
-  return `${String(m).padStart(2,'0')}:${sec}`;
-};
-
-$('videoPlayer').addEventListener('timeupdate', () => {});
