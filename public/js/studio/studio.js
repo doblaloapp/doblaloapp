@@ -38,9 +38,11 @@ async function loadScene() {
 
   const { data: chars } = await supabase.from('characters').select('*').eq('scene_id', state.sceneId);
   state.characters = chars || [];
+  // mapa id->personaje para resolver de forma segura (evita crash si falta el embed)
+  state.charById = Object.fromEntries(state.characters.map(c => [c.id, c]));
 
   const { data: lines } = await supabase.from('dialogues')
-    .select('*, characters(name,color)').eq('scene_id', state.sceneId).order('line_order');
+    .select('*').eq('scene_id', state.sceneId).order('line_order');
   state.dialogues = lines || [];
 
   if (state.projectId) { await resumeProject(); }
@@ -132,16 +134,20 @@ function renderProfiles() {
   });
 }
 
+// resuelve el personaje de una linea de forma segura
+const charOf = (d) => state.charById[d.character_id] || { name: '¿?', color: '#94a3b8' };
+
 // ============ LIBRETO ============
 function renderScript() {
   $('scriptList').innerHTML = state.dialogues.map((d, i) => {
     const mine = state.myCharIds.has(d.character_id);
     const done = !!state.takes[d.id];
+    const c = charOf(d);
     return `
       <div class="line-item rounded-lg p-2.5 cursor-pointer transition ${mine?'':'opacity-40'} ${done?'line-done':''}"
            data-index="${i}">
         <div class="flex justify-between items-center">
-          <span class="text-xs font-semibold" style="color:${d.characters.color}">${d.characters.name}</span>
+          <span class="text-xs font-semibold" style="color:${c.color}">${c.name}</span>
           <span class="take-status text-[11px] text-slate-500">${done?'✅':(mine?'· pendiente':'')}</span>
         </div>
         <p class="text-sm truncate">${d.translated_text || d.original_text || '—'}</p>
@@ -156,8 +162,9 @@ function selectLine(index) {
   const d = state.dialogues[index];
   document.querySelectorAll('.line-item').forEach((el,i)=>el.classList.toggle('line-active', i===index));
 
-  $('lineCharName').textContent = d.characters.name;
-  $('lineCharDot').style.background = d.characters.color;
+  const c = charOf(d);
+  $('lineCharName').textContent = c.name;
+  $('lineCharDot').style.background = c.color;
   $('lineTimecode').textContent = `${fmt(d.start_time)} → ${fmt(d.end_time)}`;
   $('karaokeText').textContent = d.translated_text || d.original_text || '—';
   $('originalText').textContent = d.original_text ? `(${d.original_text})` : '';
