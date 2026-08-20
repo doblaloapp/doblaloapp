@@ -98,6 +98,11 @@
     <section id="mapSection" class="glass rounded-2xl p-5 hidden">
       <h2 class="font-bold mb-1">4 y 5 &middot; Personajes detectados</h2>
       <p class="text-xs text-slate-400 mb-3">Ponle nombre a cada hablante y ajusta si hace falta.</p>
+      <div class="flex flex-wrap gap-2 mb-3">
+        <button id="detectNamesBtn" class="glass px-3 py-2 rounded-lg text-xs hover:bg-white/10">&#128269; Sugerir nombres</button>
+        <button id="translateBtn" class="glass px-3 py-2 rounded-lg text-xs hover:bg-white/10">&#127760; Traducir a espa&ntilde;ol</button>
+        <span id="mapStatus" class="text-xs text-slate-400 self-center"></span>
+      </div>
       <div id="speakerList" class="space-y-3 mb-4"></div>
       <details class="mt-2">
         <summary class="cursor-pointer text-sm text-slate-300">Ver gui&oacute;n detectado (l&iacute;neas)</summary>
