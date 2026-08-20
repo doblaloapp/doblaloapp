@@ -26,7 +26,13 @@ let waveOriginal, waveTake;
 let currentProfile = 'natural';
 
 await requireAuth();
-await loadScene();
+try {
+  await loadScene();
+} catch (e) {
+  console.error('loadScene error:', e);
+  $('karaokeText').textContent = 'Error al cargar la escena';
+  $('originalText').textContent = String(e.message || e);
+}
 
 // ============ CARGA ============
 async function loadScene() {
@@ -45,15 +51,19 @@ async function loadScene() {
     .select('*').eq('scene_id', state.sceneId).order('line_order');
   state.dialogues = lines || [];
 
-  // Estado vacio: escena sin personajes o sin lineas -> mensaje claro, no pantalla muerta
-  if (!state.characters.length || !state.dialogues.length) {
-    $('karaokeText').textContent = 'Esta escena no tiene líneas guardadas todavía.';
-    $('originalText').textContent = 'Vuelve al panel y créala de nuevo con el análisis de IA.';
+  // DIAGNOSTICO visible en el encabezado (personajes / lineas cargados)
+  const nc = state.characters.length, nd = state.dialogues.length;
+  $('myChars').textContent = `Escena: ${nc} personajes · ${nd} líneas`;
+
+  // Sin personajes: la escena quedo incompleta al crearla
+  if (!nc) {
+    $('karaokeText').textContent = 'Esta escena no tiene personajes guardados.';
+    $('originalText').textContent = 'Créala de nuevo con el análisis de IA (paso 3 del creador).';
     $('megaBtn').disabled = true; $('megaBtn').style.opacity = '.4';
     return;
   }
 
-  // Si hay proyecto previo, precarga su seleccion y tomas (pero igual mostramos el panel)
+  // Hay personajes -> mostrar el panel SIEMPRE (aunque falten lineas)
   if (state.projectId) { await preloadProject(); }
   renderCharModal();
 }
