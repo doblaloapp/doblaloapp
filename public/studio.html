@@ -36,12 +36,16 @@
   <!-- ============ MODAL SELECCION DE PERSONAJES ============ -->
   <div id="charModal" class="fixed inset-0 z-40 hidden items-center justify-center bg-black/70 p-4">
     <div class="glass-strong rounded-3xl p-7 max-w-md w-full">
-      <h2 class="text-xl font-bold mb-1">¿A quién le pones voz?</h2>
-      <p class="text-sm text-slate-400 mb-5">Toca uno o varios personajes.</p>
-      <div id="charOptions" class="grid grid-cols-2 gap-3 mb-6"></div>
-      <button id="startStudioBtn" class="btn-primary w-full py-3 rounded-xl font-semibold">¡Empezar!</button>
+      <div class="text-center mb-4">
+        <div class="text-4xl mb-2">🎭</div>
+        <h2 class="text-xl font-bold mb-1">¿A qué personaje le pones voz?</h2>
+        <p class="text-sm text-slate-400">Toca uno o varios. Solo grabarás sus líneas; las demás sirven de guía.</p>
+      </div>
+      <div id="charOptions" class="grid grid-cols-1 gap-2 mb-6"></div>
+      <button id="startStudioBtn" class="btn-primary w-full py-3 rounded-xl font-semibold">Entrar al estudio →</button>
     </div>
   </div>
+
 
   <!-- ============ OVERLAY CUENTA REGRESIVA ============ -->
   <div id="countdownOverlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80">
