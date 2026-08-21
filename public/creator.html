@@ -22,6 +22,14 @@
     #revTc { text-shadow: 0 1px 4px #000; pointer-events: none; }
     #revSub { text-shadow: 0 2px 8px #000, 0 0 4px #000; pointer-events: none; }
     /* ruler timeline */
+    #tlRuler { position: relative; height: 18px; cursor: pointer; }
+    .tl-tickmark { position: absolute; top: 11px; width: 1px; height: 6px; background: #475569; }
+    #tlCursor::before { content: ''; position: absolute; top: 0; left: -4px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #fff; }
+    #cropModal { background: rgba(0,0,0,.8); }
+    #cropStage { position: relative; display: inline-block; max-width: 100%; }
+    #cropStage img { display: block; max-width: 100%; max-height: 60vh; border-radius: 8px; }
+    #cropSel { position: absolute; border: 2px solid #22d3ee; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); cursor: move; }
+    #cropHandle { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; background: #22d3ee; border-radius: 3px; cursor: nwse-resize; }
     .tl-ruler { position: relative; height: 14px; }
     .tl-tick { position: absolute; font-size: 9px; color: #94a3b8; transform: translateX(-50%); }
     .dr-track { position: relative; height: 26px; border-radius: 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
@@ -108,7 +116,7 @@
             <div class="relative">
               <video id="reviewVideo" class="w-full rounded-xl bg-black aspect-video" controls controlslist="nodownload noplaybackrate noremoteplayback" disablepictureinpicture></video>
               <div id="revTc" class="absolute top-2 left-1/2 -translate-x-1/2 font-mono text-3xl font-bold bg-black/65 px-4 py-1 rounded">00:00:00</div>
-              <div id="revSub" class="absolute bottom-4 left-2 right-2 text-center text-2xl sm:text-3xl font-bold px-3 py-2 rounded bg-black/60"></div>
+              <div id="revSub" class="absolute bottom-4 left-2 right-2 text-center text-3xl sm:text-4xl font-bold px-4 py-3 rounded"></div>
             </div>
           </div>
           <!-- Linea de tiempo por personajes -->
@@ -177,6 +185,18 @@
         </div>
       </div>
     </section>
+
+    <!-- Modal recorte de foto -->
+    <div id="cropModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+      <div class="glass-strong rounded-2xl p-4 max-w-2xl w-full text-center">
+        <h3 class="font-bold mb-2">Selecciona el &aacute;rea de la cara</h3>
+        <div id="cropStage" class="mx-auto"><img id="cropImg" alt=""><div id="cropSel"><div id="cropHandle"></div></div></div>
+        <div class="flex justify-center gap-2 mt-3">
+          <button id="cropCancel" class="glass px-4 py-2 rounded-lg text-sm hover:bg-white/10">Cancelar</button>
+          <button id="cropUse" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">Usar recorte</button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script type="module" src="/js/creator/creator.js"></script>

@@ -103,7 +103,8 @@ function enterReview() {
     $('revTc').textContent = tc(t);
     const cur = state.lines.find(l => t >= l.start && t <= l.end);
     const sub = $('revSub');
-    if (cur) { sub.textContent = cur.translated || cur.text || ''; sub.style.display = 'block'; } else { sub.textContent = ''; sub.style.display = 'none'; }
+    if (cur) { const cc = char(cur.charLid); sub.textContent = cur.translated || cur.text || ''; sub.style.display = 'block'; sub.style.background = (cur.expr ? '#f59e0b' : (cc ? cc.color : '#000')) + 'd9'; }
+    else { sub.textContent = ''; sub.style.display = 'none'; }
     const cursor = $('tlCursor'); if (cursor) cursor.style.left = Math.min(100, t/dur*100) + '%';
   };
   // registrar linea activa al enfocar
@@ -127,15 +128,7 @@ function renderCharManager() {
     const c = char(e.target.dataset.lid), f = e.target.files[0]; if (!f) return;
     c.avatarFile = f; c.avatarUrl = URL.createObjectURL(f); renderCharManager();
   }));
-  document.querySelectorAll('.cm-capture').forEach(el => el.addEventListener('click', e => {
-    const c = char(e.target.dataset.lid);
-    captureSquare().then(blob => {
-      if (!blob) return;
-      c.avatarFile = new File([blob], 'captura.png', { type: 'image/png' });
-      c.avatarUrl = URL.createObjectURL(blob);
-      renderCharManager();
-    }).catch(() => alert('No se pudo capturar el frame (posible bloqueo CORS del video). Usa "Subir foto".'));
-  }));
+  document.querySelectorAll('.cm-capture').forEach(el => el.addEventListener('click', e => openCrop(e.target.dataset.lid)));
   document.querySelectorAll('.cm-name').forEach(el => el.addEventListener('input', e => { char(e.target.dataset.lid).name = e.target.value; renderReviewLines(); renderTimeline(); }));
   document.querySelectorAll('.cm-color').forEach(el => el.addEventListener('input', e => { char(e.target.dataset.lid).color = e.target.value; renderCharManager(); renderReviewLines(); renderTimeline(); }));
   document.querySelectorAll('.cm-del').forEach(el => el.addEventListener('click', e => removeChar(e.target.dataset.lid)));
@@ -180,6 +173,11 @@ function renderReviewLines() {
 
   const rv = $('reviewVideo');
   document.querySelectorAll('.ln-area').forEach(autoGrow);
+  // clic en el fondo de la linea -> parkea el playhead en su inicio
+  document.querySelectorAll('.rev-line').forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.closest('input,textarea,select,button,.drag-handle,.dr-track')) return;
+    const i = +el.dataset.i; rv.pause(); rv.currentTime = state.lines[i].start; state.active = i;
+  }));
   document.querySelectorAll('.play-line').forEach(b => b.addEventListener('click', () => togglePlay(+b.dataset.i)));
   document.querySelectorAll('.assign-char').forEach(el => el.addEventListener('change', e => { state.lines[+e.target.dataset.i].charLid = e.target.value; renderReviewLines(); renderTimeline(); }));
   document.querySelectorAll('.del-line').forEach(b => b.addEventListener('click', () => { state.lines.splice(+b.dataset.i, 1); renderReviewLines(); renderTimeline(); }));
@@ -225,9 +223,9 @@ function togglePlay(i) {
 // timeline por personajes: alineada, con zoom y barras editables
 function renderTimeline() {
   const dur = state.duration || 60;
-  const ticks = 8;
-  let ruler = '<div class="tl-ruler">';
-  for (let k = 0; k <= ticks; k++) { const p = k/ticks*100; ruler += `<span class="tl-tick" style="left:${p}%">${tc(dur*k/ticks)}</span>`; }
+  const step = dur <= 20 ? 2 : dur <= 60 ? 5 : 10;
+  let ruler = '<div class="tl-ruler" id="tlRuler">';
+  for (let t = 0; t <= dur + 0.001; t += step) { const p = t/dur*100; ruler += `<span class="tl-tick" style="left:${p}%">${tc(t)}</span><span class="tl-tickmark" style="left:${p}%"></span>`; }
   ruler += '</div>';
 
   const rows = state.characters.map(c => {
@@ -251,13 +249,20 @@ function renderTimeline() {
        <button id="tlToolCut" class="glass px-2 py-0.5 rounded ${state.tlTool==='cut'?'ring-2 ring-amber-400':''}">✂ Cortar</button>
        <span class="text-[10px] text-slate-500 ml-auto">${state.tlTool==='cut'?'Clic en una barra para cortarla':'Centro mueve · bordes ajustan'}</span>
      </div>
-     <div id="tlScroll" class="overflow-x-auto"><div id="tlInner" class="relative" style="width:${state.tlZoom*100}%">${inner}</div></div>`;
+     <div id="tlScroll" class="overflow-x-auto thin-scroll"><div id="tlInner" class="relative" style="width:${state.tlZoom*100}%">${inner}</div></div>`;
 
   $('tlZoomIn').onclick = () => { state.tlZoom = Math.min(10, state.tlZoom + 0.5); renderTimeline(); };
   $('tlZoomOut').onclick = () => { state.tlZoom = Math.max(1, state.tlZoom - 0.5); renderTimeline(); };
   $('tlZoomFit').onclick = () => { state.tlZoom = 1; renderTimeline(); };
   $('tlToolMove').onclick = () => { state.tlTool = null; renderTimeline(); };
   $('tlToolCut').onclick = () => { state.tlTool = 'cut'; renderTimeline(); };
+
+  // regla arrastrable: mueve el playhead / tiempo del video
+  const rulerEl = $('tlRuler');
+  if (rulerEl) {
+    const scrub = (clientX) => { const r = rulerEl.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (clientX - r.left)/r.width)); const rv = $('reviewVideo'); rv.pause(); rv.currentTime = p * dur; };
+    rulerEl.addEventListener('pointerdown', e => { scrub(e.clientX); const mv = ev => scrub(ev.clientX); const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); }; document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); });
+  }
 
   document.querySelectorAll('.tl-row').forEach(tr => tr.addEventListener('pointerdown', (e) => {
     if (e.target.classList.contains('tl-bar')) return;
@@ -267,21 +272,67 @@ function renderTimeline() {
   document.querySelectorAll('.tl-bar').forEach(b => attachBarDrag(b, dur));
 }
 
-// captura el frame actual del video recortado a cuadrado
-function captureSquare() {
-  return new Promise((resolve, reject) => {
-    const v = $('reviewVideo');
-    if (!v.videoWidth) return resolve(null);
-    try {
-      const side = Math.min(v.videoWidth, v.videoHeight);
-      const cv = document.createElement('canvas'); cv.width = side; cv.height = side;
-      const ctx = cv.getContext('2d');
-      const sx = (v.videoWidth - side)/2, sy = (v.videoHeight - side)/2;
-      ctx.drawImage(v, sx, sy, side, side, 0, 0, side, side);
-      cv.toBlob(b => b ? resolve(b) : reject(new Error('sin blob')), 'image/png');
-    } catch (e) { reject(e); }
-  });
+// ===== Recorte de foto con seleccion de area =====
+let cropCanvas = null, cropLid = null, cropSel = { x: 0, y: 0, size: 0 };
+
+function openCrop(lid) {
+  const v = $('reviewVideo');
+  if (!v.videoWidth) return alert('Reproduce o pausa el video en un frame primero');
+  try {
+    cropCanvas = document.createElement('canvas');
+    cropCanvas.width = v.videoWidth; cropCanvas.height = v.videoHeight;
+    cropCanvas.getContext('2d').drawImage(v, 0, 0);
+    const dataUrl = cropCanvas.toDataURL('image/png');   // lanza si hay CORS
+    cropLid = lid;
+    $('cropImg').onload = () => {
+      const w = $('cropImg').clientWidth, h = $('cropImg').clientHeight;
+      const size = Math.min(w, h) * 0.6;
+      cropSel = { x: (w-size)/2, y: (h-size)/2, size };
+      applyCropSel();
+    };
+    $('cropImg').src = dataUrl;
+    $('cropModal').classList.remove('hidden'); $('cropModal').classList.add('flex');
+  } catch { alert('No se pudo capturar (bloqueo CORS del video). Usa "Subir foto".'); }
 }
+
+function applyCropSel() {
+  const el = $('cropSel');
+  el.style.left = cropSel.x + 'px'; el.style.top = cropSel.y + 'px';
+  el.style.width = cropSel.size + 'px'; el.style.height = cropSel.size + 'px';
+}
+
+// arrastrar / redimensionar la seleccion
+(function initCrop(){
+  const sel = $('cropSel'), handle = $('cropHandle'), img = $('cropImg');
+  if (!sel) return;
+  let mode = null, sx = 0, sy = 0, o = null;
+  const bounds = () => ({ w: img.clientWidth, h: img.clientHeight });
+  sel.addEventListener('pointerdown', e => { if (e.target === handle) return; mode = 'move'; sx = e.clientX; sy = e.clientY; o = { ...cropSel }; e.preventDefault(); });
+  handle.addEventListener('pointerdown', e => { mode = 'resize'; sx = e.clientX; sy = e.clientY; o = { ...cropSel }; e.stopPropagation(); e.preventDefault(); });
+  document.addEventListener('pointermove', e => {
+    if (!mode) return; const b = bounds();
+    if (mode === 'move') { cropSel.x = Math.max(0, Math.min(b.w - cropSel.size, o.x + (e.clientX - sx))); cropSel.y = Math.max(0, Math.min(b.h - cropSel.size, o.y + (e.clientY - sy))); }
+    else { let ns = o.size + (e.clientX - sx); ns = Math.max(30, Math.min(Math.min(b.w - cropSel.x, b.h - cropSel.y), ns)); cropSel.size = ns; }
+    applyCropSel();
+  });
+  document.addEventListener('pointerup', () => mode = null);
+  $('cropCancel').onclick = () => { $('cropModal').classList.add('hidden'); $('cropModal').classList.remove('flex'); };
+  $('cropUse').onclick = () => {
+    const img2 = $('cropImg');
+    const scale = cropCanvas.width / img2.clientWidth;  // display -> pixeles reales
+    const sxp = cropSel.x * scale, syp = cropSel.y * scale, sizep = cropSel.size * scale;
+    const out = document.createElement('canvas'); out.width = 400; out.height = 400;
+    out.getContext('2d').drawImage(cropCanvas, sxp, syp, sizep, sizep, 0, 0, 400, 400);
+    out.toBlob(b => {
+      if (!b) return;
+      const c = char(cropLid);
+      c.avatarFile = new File([b], 'captura.png', { type: 'image/png' });
+      c.avatarUrl = URL.createObjectURL(b);
+      $('cropModal').classList.add('hidden'); $('cropModal').classList.remove('flex');
+      renderCharManager();
+    }, 'image/png');
+  };
+})();
 
 // corta una linea en un tiempo dado (se refleja en libreto y timeline)
 function splitLineAtTime(i, cutTime) {
@@ -299,7 +350,9 @@ function splitLineAtTime(i, cutTime) {
 
 // arrastrar/redimensionar una barra para editar su tiempo
 function attachBarDrag(bar, dur) {
-  // cursor dinamico segun la zona (izquierda/derecha = alargar, centro = mover)
+  // cursor dinamico + traer al frente para poder agarrar el borde derecho (fix corte)
+  bar.addEventListener('mouseenter', () => { bar.style.zIndex = '20'; });
+  bar.addEventListener('mouseleave', () => { bar.style.zIndex = ''; });
   bar.addEventListener('mousemove', (e) => {
     if (state.tlTool === 'cut') { bar.style.cursor = 'crosshair'; return; }
     const rel = e.offsetX / Math.max(1, bar.offsetWidth);
