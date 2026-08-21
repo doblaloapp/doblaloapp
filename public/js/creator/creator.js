@@ -23,7 +23,7 @@ function goPhase(n) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const tc = (s) => { const m = Math.floor(s/60), sec = (s%60).toFixed(1).padStart(4,'0'); return `${String(m).padStart(2,'0')}:${sec}`; };
+const tc = (s) => { const m = Math.floor(s/60); const sec = (s%60); return `${String(m).padStart(2,'0')}:${sec.toFixed(2).padStart(5,'0')}`; };
 
 // ============ FASE 1: SUBIR + RECORTAR + ANALIZAR ============
 $('videoInput').addEventListener('change', (e) => {
@@ -145,19 +145,26 @@ function removeChar(lid) {
 }
 
 function renderReviewLines() {
+  const dur = state.duration || 60;
   $('reviewLines').innerHTML = state.lines.map((l, i) => {
     const opts = state.characters.map(ch => `<option value="${ch.lid}" ${ch.lid===l.charLid?'selected':''}>${ch.name}</option>`).join('');
     return `
       <div class="rev-line glass rounded-lg p-2.5" data-i="${i}">
-        <div class="flex items-center gap-2 mb-1 flex-wrap">
-          <button class="play-line text-xs px-2 py-0.5 rounded bg-violet-600/70 hover:bg-violet-600" data-i="${i}">▶</button>
+        <div class="flex items-center gap-2 mb-2 flex-wrap">
+          <button class="play-line text-sm px-2 py-0.5 rounded bg-violet-600/70 hover:bg-violet-600" data-i="${i}">▶</button>
           <select class="assign-char glass rounded px-2 py-0.5 text-xs bg-transparent" data-i="${i}">${opts}</select>
-          <span class="text-[11px] text-slate-400">t:</span>
-          <input type="number" step="0.1" class="ln-start glass rounded px-1 py-0.5 text-xs mini" data-i="${i}" value="${l.start}">
-          <button class="set-start text-[11px] px-1 rounded bg-white/10 hover:bg-white/20" data-i="${i}" title="Usar tiempo actual del video">⇤ ahora</button>
-          <input type="number" step="0.1" class="ln-end glass rounded px-1 py-0.5 text-xs mini" data-i="${i}" value="${l.end}">
-          <button class="set-end text-[11px] px-1 rounded bg-white/10 hover:bg-white/20" data-i="${i}" title="Usar tiempo actual del video">ahora ⇥</button>
-          <button class="del-line text-rose-400 text-xs ml-auto" data-i="${i}">🗑</button>
+          <span class="text-[11px] font-mono text-slate-400 ml-auto">${tc(l.start)} → ${tc(l.end)}</span>
+          <button class="del-line text-rose-400 text-xs" data-i="${i}">🗑</button>
+        </div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-[10px] text-violet-300 w-14">Inicio</span>
+          <input type="range" class="ln-start flex-1 accent-violet-500" data-i="${i}" min="0" max="${dur}" step="0.05" value="${l.start}">
+          <span class="tc-start text-[10px] font-mono w-16 text-right">${tc(l.start)}</span>
+        </div>
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] text-cyan-300 w-14">Fin</span>
+          <input type="range" class="ln-end flex-1 accent-cyan-400" data-i="${i}" min="0" max="${dur}" step="0.05" value="${l.end}">
+          <span class="tc-end text-[10px] font-mono w-16 text-right">${tc(l.end)}</span>
         </div>
         <input class="ln-text w-full bg-transparent border-b border-white/10 text-xs py-1 text-slate-300" data-i="${i}" value="${(l.text||'').replace(/"/g,'&quot;')}" placeholder="Texto original">
         <input class="ln-es w-full bg-transparent border-b border-cyan-400/30 text-xs py-1 mt-1" data-i="${i}" value="${(l.translated||'').replace(/"/g,'&quot;')}" placeholder="Español">
@@ -166,28 +173,67 @@ function renderReviewLines() {
   }).join('');
 
   const rv = $('reviewVideo');
-  document.querySelectorAll('.play-line').forEach(b => b.addEventListener('click', () => playLine(+b.dataset.i)));
-  document.querySelectorAll('.rev-line').forEach(el => el.addEventListener('click', (e) => { if (e.target.closest('input,select,button')) return; playLine(+el.dataset.i); }));
+  document.querySelectorAll('.play-line').forEach(b => b.addEventListener('click', () => togglePlay(+b.dataset.i)));
   document.querySelectorAll('.assign-char').forEach(el => el.addEventListener('change', e => { state.lines[+e.target.dataset.i].charLid = e.target.value; }));
-  document.querySelectorAll('.ln-start').forEach(el => el.addEventListener('input', e => state.lines[+e.target.dataset.i].start = +e.target.value));
-  document.querySelectorAll('.ln-end').forEach(el => el.addEventListener('input', e => state.lines[+e.target.dataset.i].end = +e.target.value));
-  document.querySelectorAll('.set-start').forEach(b => b.addEventListener('click', () => { const i = +b.dataset.i; state.lines[i].start = +rv.currentTime.toFixed(2); renderReviewLines(); }));
-  document.querySelectorAll('.set-end').forEach(b => b.addEventListener('click', () => { const i = +b.dataset.i; state.lines[i].end = +rv.currentTime.toFixed(2); renderReviewLines(); }));
+  document.querySelectorAll('.del-line').forEach(b => b.addEventListener('click', () => { state.lines.splice(+b.dataset.i, 1); renderReviewLines(); }));
+
+  // sliders finos: al mover, el video salta a ese momento y se ve en vivo
+  document.querySelectorAll('.ln-start').forEach(el => el.addEventListener('input', e => {
+    const i = +e.target.dataset.i; let v = +e.target.value;
+    if (v > state.lines[i].end - 0.1) { v = state.lines[i].end - 0.1; e.target.value = v; }
+    state.lines[i].start = +v.toFixed(2);
+    e.target.closest('.rev-line').querySelector('.tc-start').textContent = tc(v);
+    rv.pause(); rv.currentTime = v;
+    updateLineTc(i);
+  }));
+  document.querySelectorAll('.ln-end').forEach(el => el.addEventListener('input', e => {
+    const i = +e.target.dataset.i; let v = +e.target.value;
+    if (v < state.lines[i].start + 0.1) { v = state.lines[i].start + 0.1; e.target.value = v; }
+    state.lines[i].end = +v.toFixed(2);
+    e.target.closest('.rev-line').querySelector('.tc-end').textContent = tc(v);
+    rv.pause(); rv.currentTime = v;
+    updateLineTc(i);
+  }));
+
   document.querySelectorAll('.ln-text').forEach(el => el.addEventListener('input', e => state.lines[+e.target.dataset.i].text = e.target.value));
   document.querySelectorAll('.ln-es').forEach(el => el.addEventListener('input', e => state.lines[+e.target.dataset.i].translated = e.target.value));
-  document.querySelectorAll('.del-line').forEach(b => b.addEventListener('click', () => { state.lines.splice(+b.dataset.i, 1); renderReviewLines(); }));
   document.querySelectorAll('.split-line').forEach(b => b.addEventListener('click', () => {
     const i = +b.dataset.i, input = document.querySelector(`.ln-text[data-i="${i}"]`);
     splitLine(i, input.selectionStart ?? Math.floor((input.value||'').length/2));
   }));
 }
 
-function playLine(i) {
-  const l = state.lines[i], v = $('reviewVideo');
+// actualiza el timecode "inicio → fin" de una linea sin re-renderizar todo
+function updateLineTc(i) {
+  const row = document.querySelector(`.rev-line[data-i="${i}"]`);
+  if (!row) return;
+  const l = state.lines[i];
+  const span = row.querySelector('.font-mono.text-slate-400');
+  if (span) span.textContent = `${tc(l.start)} → ${tc(l.end)}`;
+}
+
+let playIdx = -1, lineStop = null;
+function togglePlay(i) {
+  const v = $('reviewVideo');
+  const btn = document.querySelector(`.play-line[data-i="${i}"]`);
+  if (lineStop) { v.removeEventListener('timeupdate', lineStop); lineStop = null; }
+  // si esta misma linea esta sonando -> pausar
+  if (playIdx === i && !v.paused) {
+    v.pause(); if (btn) btn.textContent = '▶'; return;
+  }
+  playIdx = i;
+  document.querySelectorAll('.play-line').forEach(b => b.textContent = '▶');
   document.querySelectorAll('.rev-line').forEach(el => el.classList.toggle('playing', +el.dataset.i === i));
+  if (btn) btn.textContent = '⏸';
+  const l = state.lines[i];
   v.currentTime = l.start; v.play();
-  const stop = () => { if (v.currentTime >= l.end) { v.pause(); v.removeEventListener('timeupdate', stop); } };
-  v.addEventListener('timeupdate', stop);
+  lineStop = () => {
+    if (v.currentTime >= state.lines[i].end) {
+      v.pause(); v.removeEventListener('timeupdate', lineStop); lineStop = null;
+      if (btn) btn.textContent = '▶';
+    }
+  };
+  v.addEventListener('timeupdate', lineStop);
 }
 
 $('addLineBtn').addEventListener('click', () => {

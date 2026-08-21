@@ -81,39 +81,41 @@
 
     <!-- FASE 2: REVISAR -->
     <section id="phase2" class="phase">
-      <!-- Video GRANDE a todo el ancho -->
-      <div class="glass rounded-2xl p-2 mb-3">
-        <div class="relative">
-          <video id="reviewVideo" class="w-full rounded-xl bg-black aspect-video" controls></video>
-          <div id="revTc" class="absolute top-2 left-2 font-mono text-lg font-bold bg-black/60 px-2 py-1 rounded">00:00.0</div>
-        </div>
-      </div>
-
-      <!-- Personajes: barra compacta -->
-      <div class="glass rounded-2xl p-3 mb-3">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-semibold">&#127917; Personajes</h3>
-          <div class="flex gap-2">
-            <button id="detectNamesBtn" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">&#128269; Nombres</button>
-            <button id="translateBtn" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">&#127760; Traducir</button>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- IZQUIERDA: video + personajes debajo -->
+        <div class="space-y-3 lg:sticky lg:top-20 self-start">
+          <div class="glass rounded-2xl p-2">
+            <div class="relative">
+              <video id="reviewVideo" class="w-full rounded-xl bg-black aspect-video" controls></video>
+              <div id="revTc" class="absolute top-2 left-2 font-mono text-lg font-bold bg-black/60 px-2 py-1 rounded">00:00.00</div>
+            </div>
+          </div>
+          <div class="glass rounded-2xl p-3">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-semibold">&#127917; Personajes</h3>
+              <div class="flex gap-2">
+                <button id="detectNamesBtn" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">&#128269; Buscar nombres</button>
+                <button id="translateBtn" class="glass px-2 py-1 rounded text-xs hover:bg-white/10">&#127760; Traducir</button>
+              </div>
+            </div>
+            <div id="charManager" class="flex flex-wrap gap-2 mb-2"></div>
+            <div class="flex gap-2">
+              <input id="newCharName" placeholder="Nuevo personaje" class="flex-1 glass rounded-lg px-2 py-1 text-sm">
+              <input id="newCharColor" type="color" value="#8b5cf6" class="w-9 h-9 rounded bg-transparent">
+              <button id="addCharBtn" class="glass px-3 rounded-lg text-sm hover:bg-white/10">+ personaje</button>
+            </div>
+            <p id="p2Status" class="text-xs text-slate-400 mt-2"></p>
           </div>
         </div>
-        <div id="charManager" class="flex flex-wrap gap-2 mb-2"></div>
-        <div class="flex gap-2">
-          <input id="newCharName" placeholder="Nuevo personaje" class="flex-1 glass rounded-lg px-2 py-1 text-sm">
-          <input id="newCharColor" type="color" value="#8b5cf6" class="w-9 h-9 rounded bg-transparent">
-          <button id="addCharBtn" class="glass px-3 rounded-lg text-sm hover:bg-white/10">+ personaje</button>
-        </div>
-        <p id="p2Status" class="text-xs text-slate-400 mt-2"></p>
-      </div>
 
-      <!-- Libreto a todo el ancho -->
-      <div class="glass rounded-2xl p-4">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-sm font-semibold">&#128220; L&iacute;neas</h3>
-          <button id="addLineBtn" class="glass px-3 py-1 rounded-lg text-xs hover:bg-white/10">+ Agregar l&iacute;nea</button>
+        <!-- DERECHA: libreto -->
+        <div class="glass rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-semibold">&#128220; L&iacute;neas</h3>
+            <button id="addLineBtn" class="glass px-3 py-1 rounded-lg text-xs hover:bg-white/10">+ Agregar l&iacute;nea</button>
+          </div>
+          <div id="reviewLines" class="space-y-2 max-h-[75vh] overflow-y-auto thin-scroll pr-1"></div>
         </div>
-        <div id="reviewLines" class="space-y-2"></div>
       </div>
 
       <div class="flex justify-end mt-4">

@@ -4,8 +4,8 @@
 // para verificar (abajo a la derecha en la pantalla) que Vercel
 // ya sirvio la version nueva y no una cacheada.
 // ============================================================
-export const APP_VERSION = 'v1.6.1';
-export const APP_BUILD = '2026-08-20 · creador 3 fases + crear líneas + tiempos'
+export const APP_VERSION = 'v1.6.2';
+export const APP_BUILD = '2026-08-20 · timecode MM:SS + sliders + video izq'
 
 function injectBadge() {
   if (document.getElementById('appVersionBadge')) return;
