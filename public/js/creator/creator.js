@@ -13,7 +13,7 @@ const qs = new URLSearchParams(location.search);
 
 const state = {
   file: null, trimmedBlob: null, trimmedUrl: null, sceneVideoUrl: null, storagePath: null,
-  duration: 30, characters: [], lines: [], active: -1, editSceneId: qs.get('edit') || null, tlZoom: 1,
+  duration: 30, characters: [], lines: [], active: -1, editSceneId: qs.get('edit') || null, tlZoom: 1, tlTool: null,
 };
 
 function goPhase(n) {
@@ -96,6 +96,7 @@ function buildFromUtterances(utts) {
 
 function enterReview() {
   const rv = $('reviewVideo');
+  rv.crossOrigin = 'anonymous';   // permite capturar frames a canvas
   rv.src = state.trimmedUrl || state.sceneVideoUrl;
   rv.ontimeupdate = () => {
     const t = rv.currentTime, dur = state.duration || 60;
@@ -117,6 +118,7 @@ function renderCharManager() {
         <input type="file" accept="image/*" class="cm-photo hidden" data-lid="${c.lid}">
         ${c.avatarUrl ? `<img src="${c.avatarUrl}" class="avatar-sq">` : `<span class="avatar-sq text-sm">📷</span>`}
       </label>
+      <button class="cm-capture text-xs px-1" data-lid="${c.lid}" title="Capturar del video (frame actual)">📸</button>
       <input type="color" value="${c.color}" data-lid="${c.lid}" class="cm-color w-6 h-6 rounded-full bg-transparent border-0">
       <input value="${c.name}" data-lid="${c.lid}" class="cm-name bg-transparent text-xs outline-none w-20">
       <button data-lid="${c.lid}" class="cm-del text-rose-400 text-xs px-1">✕</button>
@@ -124,6 +126,15 @@ function renderCharManager() {
   document.querySelectorAll('.cm-photo').forEach(el => el.addEventListener('change', e => {
     const c = char(e.target.dataset.lid), f = e.target.files[0]; if (!f) return;
     c.avatarFile = f; c.avatarUrl = URL.createObjectURL(f); renderCharManager();
+  }));
+  document.querySelectorAll('.cm-capture').forEach(el => el.addEventListener('click', e => {
+    const c = char(e.target.dataset.lid);
+    captureSquare().then(blob => {
+      if (!blob) return;
+      c.avatarFile = new File([blob], 'captura.png', { type: 'image/png' });
+      c.avatarUrl = URL.createObjectURL(blob);
+      renderCharManager();
+    }).catch(() => alert('No se pudo capturar el frame (posible bloqueo CORS del video). Usa "Subir foto".'));
   }));
   document.querySelectorAll('.cm-name').forEach(el => el.addEventListener('input', e => { char(e.target.dataset.lid).name = e.target.value; renderReviewLines(); renderTimeline(); }));
   document.querySelectorAll('.cm-color').forEach(el => el.addEventListener('input', e => { char(e.target.dataset.lid).color = e.target.value; renderCharManager(); renderReviewLines(); renderTimeline(); }));
@@ -230,18 +241,23 @@ function renderTimeline() {
 
   const inner = ruler + rows + '<div id="tlCursor" style="left:0%"></div>';
   $('timeline').innerHTML =
-    `<div class="flex items-center gap-2 mb-1 text-xs">
+    `<div class="flex items-center gap-2 mb-1 text-xs flex-wrap">
        <button id="tlZoomOut" class="glass px-2 py-0.5 rounded">−</button>
        <span class="text-slate-400">Zoom ${state.tlZoom.toFixed(1)}x</span>
        <button id="tlZoomIn" class="glass px-2 py-0.5 rounded">+</button>
        <button id="tlZoomFit" class="glass px-2 py-0.5 rounded">Ajustar</button>
-       <span class="text-[10px] text-slate-500 ml-auto">Arrastra las barras (centro mueve, bordes ajustan)</span>
+       <span class="w-px h-4 bg-white/20 mx-1"></span>
+       <button id="tlToolMove" class="glass px-2 py-0.5 rounded ${!state.tlTool?'ring-2 ring-violet-500':''}">✋ Mover</button>
+       <button id="tlToolCut" class="glass px-2 py-0.5 rounded ${state.tlTool==='cut'?'ring-2 ring-amber-400':''}">✂ Cortar</button>
+       <span class="text-[10px] text-slate-500 ml-auto">${state.tlTool==='cut'?'Clic en una barra para cortarla':'Centro mueve · bordes ajustan'}</span>
      </div>
      <div id="tlScroll" class="overflow-x-auto"><div id="tlInner" class="relative" style="width:${state.tlZoom*100}%">${inner}</div></div>`;
 
   $('tlZoomIn').onclick = () => { state.tlZoom = Math.min(10, state.tlZoom + 0.5); renderTimeline(); };
   $('tlZoomOut').onclick = () => { state.tlZoom = Math.max(1, state.tlZoom - 0.5); renderTimeline(); };
   $('tlZoomFit').onclick = () => { state.tlZoom = 1; renderTimeline(); };
+  $('tlToolMove').onclick = () => { state.tlTool = null; renderTimeline(); };
+  $('tlToolCut').onclick = () => { state.tlTool = 'cut'; renderTimeline(); };
 
   document.querySelectorAll('.tl-row').forEach(tr => tr.addEventListener('pointerdown', (e) => {
     if (e.target.classList.contains('tl-bar')) return;
@@ -251,12 +267,57 @@ function renderTimeline() {
   document.querySelectorAll('.tl-bar').forEach(b => attachBarDrag(b, dur));
 }
 
+// captura el frame actual del video recortado a cuadrado
+function captureSquare() {
+  return new Promise((resolve, reject) => {
+    const v = $('reviewVideo');
+    if (!v.videoWidth) return resolve(null);
+    try {
+      const side = Math.min(v.videoWidth, v.videoHeight);
+      const cv = document.createElement('canvas'); cv.width = side; cv.height = side;
+      const ctx = cv.getContext('2d');
+      const sx = (v.videoWidth - side)/2, sy = (v.videoHeight - side)/2;
+      ctx.drawImage(v, sx, sy, side, side, 0, 0, side, side);
+      cv.toBlob(b => b ? resolve(b) : reject(new Error('sin blob')), 'image/png');
+    } catch (e) { reject(e); }
+  });
+}
+
+// corta una linea en un tiempo dado (se refleja en libreto y timeline)
+function splitLineAtTime(i, cutTime) {
+  const l = state.lines[i];
+  if (cutTime <= l.start + 0.05 || cutTime >= l.end - 0.05) return;
+  const ratio = (cutTime - l.start) / (l.end - l.start);
+  const text = l.text || '';
+  const caret = Math.max(0, Math.min(text.length, Math.round(text.length * ratio)));
+  const left = text.slice(0, caret).trim(), right = text.slice(caret).trim();
+  const newLine = { text: right, translated: '', start: +cutTime.toFixed(2), end: l.end, charLid: l.charLid, expr: l.expr };
+  l.text = left; l.translated = ''; l.end = +cutTime.toFixed(2);
+  state.lines.splice(i + 1, 0, newLine);
+  renderReviewLines(); renderTimeline();
+}
+
 // arrastrar/redimensionar una barra para editar su tiempo
 function attachBarDrag(bar, dur) {
+  // cursor dinamico segun la zona (izquierda/derecha = alargar, centro = mover)
+  bar.addEventListener('mousemove', (e) => {
+    if (state.tlTool === 'cut') { bar.style.cursor = 'crosshair'; return; }
+    const rel = e.offsetX / Math.max(1, bar.offsetWidth);
+    bar.style.cursor = rel < 0.28 ? 'w-resize' : rel > 0.72 ? 'e-resize' : 'grab';
+  });
+
   bar.addEventListener('pointerdown', (e) => {
     e.preventDefault(); e.stopPropagation();
     const i = +bar.dataset.i, l = state.lines[i];
     const row = bar.parentElement, rect = row.getBoundingClientRect();
+
+    // MODO CORTAR: parte la linea en el punto exacto del clic
+    if (state.tlTool === 'cut') {
+      const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      splitLineAtTime(i, p * dur);
+      return;
+    }
+
     const rel = (e.clientX - bar.getBoundingClientRect().left) / Math.max(1, bar.offsetWidth);
     const mode = rel < 0.28 ? 'start' : rel > 0.72 ? 'end' : 'move';
     const startX = e.clientX, o = { s: l.start, e: l.end };
