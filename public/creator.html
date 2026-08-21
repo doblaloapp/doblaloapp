@@ -15,9 +15,20 @@
     #outRange::-webkit-slider-thumb { background: #22d3ee; box-shadow: 0 0 8px rgba(34,211,238,.7); }
     .step { opacity: .4; } .step.active { opacity: 1; } .step.done { opacity: .8; }
     .phase { display: none; } .phase.active { display: block; }
-    .rev-line.playing { background: rgba(139,92,246,.22); border-left: 3px solid #8b5cf6; }
-    #revTc { text-shadow: 0 1px 3px #000; }
-    .mini { width: 62px; }
+    .rev-line.playing { outline: 2px solid rgba(139,92,246,.6); }
+    .rev-line.dragging { opacity: .4; }
+    .rev-line.expr { font-style: italic; }
+    #revTc { text-shadow: 0 1px 4px #000; }
+    #revSub { text-shadow: 0 2px 6px #000; }
+    /* doble slider por linea */
+    .dr-track { position: relative; height: 26px; border-radius: 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
+    .dr-fill { position: absolute; top: 0; bottom: 0; background: rgba(139,92,246,.30); }
+    .dr-range { position: absolute; top: 0; left: 0; width: 100%; height: 26px; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+    .dr-range::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 12px; height: 26px; border-radius: 4px; background: #8b5cf6; cursor: ew-resize; }
+    .dr-range::-moz-range-thumb { pointer-events: auto; width: 12px; height: 26px; border: 0; border-radius: 4px; background: #8b5cf6; cursor: ew-resize; }
+    .dr-range.end::-webkit-slider-thumb { background: #22d3ee; }
+    .dr-range.end::-moz-range-thumb { background: #22d3ee; }
+    .drag-handle { cursor: grab; }
   </style>
 </head>
 <body class="text-slate-100">
@@ -32,17 +43,15 @@
     </div>
   </header>
 
-  <main class="max-w-5xl mx-auto p-4 sm:p-6">
+  <main class="max-w-6xl mx-auto p-4 sm:p-6">
 
     <!-- FASE 1: SUBIR + RECORTAR + ANALIZAR -->
     <section id="phase1" class="phase active">
       <div class="glass rounded-2xl p-6 space-y-4">
         <h2 class="font-bold text-lg">1 &middot; Sube, recorta y analiza</h2>
-
         <input id="videoInput" type="file" accept="video/*"
           class="block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-violet-600 file:text-white" />
         <video id="preview" class="w-full rounded-xl bg-black aspect-video hidden" controls></video>
-
         <div id="trimBlock" class="hidden space-y-3">
           <p class="text-xs text-slate-400">Ajusta el fragmento (arrastra las manijas o usa los botones).</p>
           <div class="trim-track" id="trimTrack">
@@ -72,22 +81,21 @@
             <button id="cutAnalyzeBtn" class="btn-primary px-5 py-3 rounded-xl font-semibold">&#9986; Recortar y analizar &rarr;</button>
             <span id="p1Status" class="text-sm text-slate-300"></span>
           </div>
-          <div class="h-2 rounded-full bg-white/10 overflow-hidden hidden" id="p1BarWrap">
-            <div id="p1Bar" class="xp-bar h-full bg-cyan-400" style="width:0%"></div>
-          </div>
+          <div class="h-2 rounded-full bg-white/10 overflow-hidden hidden" id="p1BarWrap"><div id="p1Bar" class="xp-bar h-full bg-cyan-400" style="width:0%"></div></div>
         </div>
       </div>
     </section>
 
     <!-- FASE 2: REVISAR -->
     <section id="phase2" class="phase">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <!-- IZQUIERDA: video + personajes debajo -->
-        <div class="space-y-3 lg:sticky lg:top-20 self-start">
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <!-- IZQUIERDA (grande): video + personajes -->
+        <div class="lg:col-span-3 space-y-3 lg:sticky lg:top-20 self-start">
           <div class="glass rounded-2xl p-2">
             <div class="relative">
               <video id="reviewVideo" class="w-full rounded-xl bg-black aspect-video" controls></video>
-              <div id="revTc" class="absolute top-2 left-2 font-mono text-lg font-bold bg-black/60 px-2 py-1 rounded">00:00.00</div>
+              <div id="revTc" class="absolute top-2 left-1/2 -translate-x-1/2 font-mono text-xl font-bold bg-black/60 px-3 py-1 rounded">00:00:00</div>
+              <div id="revSub" class="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[90%] text-center text-lg font-semibold px-3 py-1 rounded bg-black/50"></div>
             </div>
           </div>
           <div class="glass rounded-2xl p-3">
@@ -109,15 +117,27 @@
         </div>
 
         <!-- DERECHA: libreto -->
-        <div class="glass rounded-2xl p-4">
+        <div class="lg:col-span-2 glass rounded-2xl p-4">
           <div class="flex items-center justify-between mb-2">
             <h3 class="text-sm font-semibold">&#128220; L&iacute;neas</h3>
-            <button id="addLineBtn" class="glass px-3 py-1 rounded-lg text-xs hover:bg-white/10">+ Agregar l&iacute;nea</button>
+            <div class="flex gap-2">
+              <select id="exprSelect" class="glass rounded px-2 py-1 text-xs bg-transparent">
+                <option class="bg-slate-800" value="(RISA)">Risa</option>
+                <option class="bg-slate-800" value="(WALLA)">Walla</option>
+                <option class="bg-slate-800" value="(GRITO)">Grito</option>
+                <option class="bg-slate-800" value="(SUSPIRO)">Suspiro</option>
+                <option class="bg-slate-800" value="(LLANTO)">Llanto</option>
+                <option class="bg-slate-800" value="(TOS)">Tos</option>
+                <option class="bg-slate-800" value="(SILENCIO)">Silencio</option>
+                <option class="bg-slate-800" value="(REC)">Rec</option>
+              </select>
+              <button id="addExprBtn" class="glass px-2 py-1 rounded-lg text-xs hover:bg-white/10">+ Expresi&oacute;n</button>
+              <button id="addLineBtn" class="glass px-2 py-1 rounded-lg text-xs hover:bg-white/10">+ L&iacute;nea</button>
+            </div>
           </div>
           <div id="reviewLines" class="space-y-2 max-h-[75vh] overflow-y-auto thin-scroll pr-1"></div>
         </div>
       </div>
-
       <div class="flex justify-end mt-4">
         <button id="toPhase3" class="btn-primary px-5 py-3 rounded-xl font-semibold">Continuar a publicar &rarr;</button>
       </div>

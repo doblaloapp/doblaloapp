@@ -23,7 +23,12 @@ function goPhase(n) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const tc = (s) => { const m = Math.floor(s/60); const sec = (s%60); return `${String(m).padStart(2,'0')}:${sec.toFixed(2).padStart(5,'0')}`; };
+const tc = (s) => {
+  s = Math.max(0, s || 0);
+  const m = Math.floor(s/60), sec = Math.floor(s%60), cs = Math.round((s - Math.floor(s))*100);
+  const p = (n) => String(n).padStart(2,'0');
+  return `${p(m)}:${p(sec)}:${p(cs === 100 ? 99 : cs)}`;
+};
 
 // ============ FASE 1: SUBIR + RECORTAR + ANALIZAR ============
 $('videoInput').addEventListener('change', (e) => {
@@ -105,13 +110,21 @@ function buildFromUtterances(utts) {
   const speakers = [...new Set(utts.map(u => u.speaker))];
   state.characters = speakers.map(sp => ({ lid: 'c_'+sp, name: `Personaje ${sp}`, color: nextColor() }));
   const spToLid = Object.fromEntries(speakers.map(sp => [sp, 'c_'+sp]));
-  state.lines = utts.map(u => ({ text: u.text||'', translated: '', start: +(u.start/1000).toFixed(2), end: +(u.end/1000).toFixed(2), charLid: spToLid[u.speaker] }));
+  state.lines = utts.map(u => ({ text: u.text||'', translated: '', start: +(u.start/1000).toFixed(2), end: +(u.end/1000).toFixed(2), charLid: spToLid[u.speaker], expr: false }));
 }
 
 function enterReview() {
   const rv = $('reviewVideo');
   rv.src = state.trimmedUrl || state.sceneVideoUrl;
-  rv.ontimeupdate = () => { $('revTc').textContent = tc(rv.currentTime); };
+  rv.ontimeupdate = () => {
+    $('revTc').textContent = tc(rv.currentTime);
+    // subtitulo: linea cuyo rango contiene el tiempo actual
+    const t = rv.currentTime;
+    const cur = state.lines.find(l => t >= l.start && t <= l.end);
+    const sub = $('revSub');
+    if (cur) { sub.textContent = cur.translated || cur.text || ''; sub.style.display = 'block'; }
+    else { sub.textContent = ''; sub.style.display = 'none'; }
+  };
   renderCharManager(); renderReviewLines();
 }
 
@@ -147,68 +160,84 @@ function removeChar(lid) {
 function renderReviewLines() {
   const dur = state.duration || 60;
   $('reviewLines').innerHTML = state.lines.map((l, i) => {
+    const c = char(l.charLid) || { name: '?', color: '#888' };
     const opts = state.characters.map(ch => `<option value="${ch.lid}" ${ch.lid===l.charLid?'selected':''}>${ch.name}</option>`).join('');
+    const accent = l.expr ? '#f59e0b' : c.color;                 // expresiones en ámbar
+    const bg = l.expr ? 'rgba(245,158,11,.12)' : 'rgba(255,255,255,.05)';
+    const sL = (l.start/dur)*100, sW = ((l.end-l.start)/dur)*100;
     return `
-      <div class="rev-line glass rounded-lg p-2.5" data-i="${i}">
+      <div class="rev-line rounded-lg p-2.5 ${l.expr?'expr':''}" data-i="${i}" draggable="true"
+           style="border-left:4px solid ${accent}; background:${bg}">
         <div class="flex items-center gap-2 mb-2 flex-wrap">
+          <span class="drag-handle text-slate-500" title="Arrastra para reordenar">⋮⋮</span>
           <button class="play-line text-sm px-2 py-0.5 rounded bg-violet-600/70 hover:bg-violet-600" data-i="${i}">▶</button>
           <select class="assign-char glass rounded px-2 py-0.5 text-xs bg-transparent" data-i="${i}">${opts}</select>
-          <span class="text-[11px] font-mono text-slate-400 ml-auto">${tc(l.start)} → ${tc(l.end)}</span>
+          <span class="text-[11px] font-mono ml-auto" style="color:${accent}">${tc(l.start)} → ${tc(l.end)}</span>
           <button class="del-line text-rose-400 text-xs" data-i="${i}">🗑</button>
         </div>
-        <div class="flex items-center gap-2 mb-1">
-          <span class="text-[10px] text-violet-300 w-14">Inicio</span>
-          <input type="range" class="ln-start flex-1 accent-violet-500" data-i="${i}" min="0" max="${dur}" step="0.05" value="${l.start}">
-          <span class="tc-start text-[10px] font-mono w-16 text-right">${tc(l.start)}</span>
+        <div class="dr-track mb-2" data-i="${i}">
+          <div class="dr-fill" style="left:${sL}%; width:${sW}%"></div>
+          <input type="range" class="dr-range start" data-i="${i}" min="0" max="${dur}" step="0.05" value="${l.start}">
+          <input type="range" class="dr-range end" data-i="${i}" min="0" max="${dur}" step="0.05" value="${l.end}">
         </div>
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-[10px] text-cyan-300 w-14">Fin</span>
-          <input type="range" class="ln-end flex-1 accent-cyan-400" data-i="${i}" min="0" max="${dur}" step="0.05" value="${l.end}">
-          <span class="tc-end text-[10px] font-mono w-16 text-right">${tc(l.end)}</span>
-        </div>
-        <input class="ln-text w-full bg-transparent border-b border-white/10 text-xs py-1 text-slate-300" data-i="${i}" value="${(l.text||'').replace(/"/g,'&quot;')}" placeholder="Texto original">
-        <input class="ln-es w-full bg-transparent border-b border-cyan-400/30 text-xs py-1 mt-1" data-i="${i}" value="${(l.translated||'').replace(/"/g,'&quot;')}" placeholder="Español">
-        <button class="split-line text-[11px] text-violet-300 mt-1 hover:underline" data-i="${i}">✂ Dividir en el cursor del texto original</button>
+        <input class="ln-text w-full bg-transparent border-b border-white/10 text-xs py-1 ${l.expr?'text-amber-300':'text-slate-300'}" data-i="${i}" value="${(l.text||'').replace(/"/g,'&quot;')}" placeholder="${l.expr?'Expresión':'Texto original'}">
+        ${l.expr ? '' : `<input class="ln-es w-full bg-transparent border-b border-cyan-400/30 text-xs py-1 mt-1" data-i="${i}" value="${(l.translated||'').replace(/"/g,'&quot;')}" placeholder="Español">
+        <button class="split-line text-[11px] text-violet-300 mt-1 hover:underline" data-i="${i}">✂ Dividir en el cursor</button>`}
       </div>`;
   }).join('');
 
   const rv = $('reviewVideo');
+
   document.querySelectorAll('.play-line').forEach(b => b.addEventListener('click', () => togglePlay(+b.dataset.i)));
-  document.querySelectorAll('.assign-char').forEach(el => el.addEventListener('change', e => { state.lines[+e.target.dataset.i].charLid = e.target.value; }));
+  document.querySelectorAll('.assign-char').forEach(el => el.addEventListener('change', e => { state.lines[+e.target.dataset.i].charLid = e.target.value; renderReviewLines(); }));
   document.querySelectorAll('.del-line').forEach(b => b.addEventListener('click', () => { state.lines.splice(+b.dataset.i, 1); renderReviewLines(); }));
-
-  // sliders finos: al mover, el video salta a ese momento y se ve en vivo
-  document.querySelectorAll('.ln-start').forEach(el => el.addEventListener('input', e => {
-    const i = +e.target.dataset.i; let v = +e.target.value;
-    if (v > state.lines[i].end - 0.1) { v = state.lines[i].end - 0.1; e.target.value = v; }
-    state.lines[i].start = +v.toFixed(2);
-    e.target.closest('.rev-line').querySelector('.tc-start').textContent = tc(v);
-    rv.pause(); rv.currentTime = v;
-    updateLineTc(i);
-  }));
-  document.querySelectorAll('.ln-end').forEach(el => el.addEventListener('input', e => {
-    const i = +e.target.dataset.i; let v = +e.target.value;
-    if (v < state.lines[i].start + 0.1) { v = state.lines[i].start + 0.1; e.target.value = v; }
-    state.lines[i].end = +v.toFixed(2);
-    e.target.closest('.rev-line').querySelector('.tc-end').textContent = tc(v);
-    rv.pause(); rv.currentTime = v;
-    updateLineTc(i);
-  }));
-
   document.querySelectorAll('.ln-text').forEach(el => el.addEventListener('input', e => state.lines[+e.target.dataset.i].text = e.target.value));
   document.querySelectorAll('.ln-es').forEach(el => el.addEventListener('input', e => state.lines[+e.target.dataset.i].translated = e.target.value));
   document.querySelectorAll('.split-line').forEach(b => b.addEventListener('click', () => {
     const i = +b.dataset.i, input = document.querySelector(`.ln-text[data-i="${i}"]`);
     splitLine(i, input.selectionStart ?? Math.floor((input.value||'').length/2));
   }));
+
+  // dual-slider por linea: mueve el video en vivo
+  const clampFill = (i) => {
+    const l = state.lines[i], row = document.querySelector(`.dr-track[data-i="${i}"]`);
+    if (row) { row.querySelector('.dr-fill').style.left = (l.start/dur*100)+'%'; row.querySelector('.dr-fill').style.width = ((l.end-l.start)/dur*100)+'%'; }
+    updateLineTc(i);
+  };
+  document.querySelectorAll('.dr-range.start').forEach(el => el.addEventListener('input', e => {
+    const i = +e.target.dataset.i; let v = +e.target.value;
+    if (v > state.lines[i].end - 0.1) { v = state.lines[i].end - 0.1; e.target.value = v; }
+    state.lines[i].start = +v.toFixed(2); rv.pause(); rv.currentTime = v; clampFill(i);
+  }));
+  document.querySelectorAll('.dr-range.end').forEach(el => el.addEventListener('input', e => {
+    const i = +e.target.dataset.i; let v = +e.target.value;
+    if (v < state.lines[i].start + 0.1) { v = state.lines[i].start + 0.1; e.target.value = v; }
+    state.lines[i].end = +v.toFixed(2); rv.pause(); rv.currentTime = v; clampFill(i);
+  }));
+
+  // reordenar arrastrando
+  document.querySelectorAll('.rev-line').forEach(el => {
+    el.addEventListener('dragstart', e => { dragFrom = +el.dataset.i; el.classList.add('dragging'); });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    el.addEventListener('dragover', e => e.preventDefault());
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      const to = +el.dataset.i;
+      if (dragFrom === null || dragFrom === to) return;
+      const [moved] = state.lines.splice(dragFrom, 1);
+      state.lines.splice(to, 0, moved);
+      dragFrom = null; renderReviewLines();
+    });
+  });
 }
 
-// actualiza el timecode "inicio → fin" de una linea sin re-renderizar todo
+let dragFrom = null;
+
 function updateLineTc(i) {
   const row = document.querySelector(`.rev-line[data-i="${i}"]`);
   if (!row) return;
   const l = state.lines[i];
-  const span = row.querySelector('.font-mono.text-slate-400');
+  const span = row.querySelector('.font-mono');
   if (span) span.textContent = `${tc(l.start)} → ${tc(l.end)}`;
 }
 
@@ -217,30 +246,32 @@ function togglePlay(i) {
   const v = $('reviewVideo');
   const btn = document.querySelector(`.play-line[data-i="${i}"]`);
   if (lineStop) { v.removeEventListener('timeupdate', lineStop); lineStop = null; }
-  // si esta misma linea esta sonando -> pausar
-  if (playIdx === i && !v.paused) {
-    v.pause(); if (btn) btn.textContent = '▶'; return;
-  }
+  if (playIdx === i && !v.paused) { v.pause(); if (btn) btn.textContent = '▶'; return; }
   playIdx = i;
   document.querySelectorAll('.play-line').forEach(b => b.textContent = '▶');
   document.querySelectorAll('.rev-line').forEach(el => el.classList.toggle('playing', +el.dataset.i === i));
   if (btn) btn.textContent = '⏸';
   const l = state.lines[i];
   v.currentTime = l.start; v.play();
-  lineStop = () => {
-    if (v.currentTime >= state.lines[i].end) {
-      v.pause(); v.removeEventListener('timeupdate', lineStop); lineStop = null;
-      if (btn) btn.textContent = '▶';
-    }
-  };
+  lineStop = () => { if (v.currentTime >= state.lines[i].end) { v.pause(); v.removeEventListener('timeupdate', lineStop); lineStop = null; if (btn) btn.textContent = '▶'; } };
   v.addEventListener('timeupdate', lineStop);
 }
+
+// insertar expresion (Risa, Walla, etc.) en otro color
+$('addExprBtn').addEventListener('click', () => {
+  if (!state.characters.length) state.characters.push({ lid: 'c_'+Date.now(), name: 'Personaje', color: nextColor() });
+  const tag = $('exprSelect').value;
+  const last = state.lines[state.lines.length-1];
+  const start = last ? last.end : 0;
+  state.lines.push({ text: tag, translated: tag, start: +start.toFixed(2), end: +(start+1).toFixed(2), charLid: state.characters[0].lid, expr: true });
+  renderReviewLines();
+});
 
 $('addLineBtn').addEventListener('click', () => {
   if (!state.characters.length) state.characters.push({ lid: 'c_'+Date.now(), name: 'Personaje', color: nextColor() });
   const last = state.lines[state.lines.length-1];
   const start = last ? last.end : 0;
-  state.lines.push({ text: '', translated: '', start: +start.toFixed(2), end: +(start+2).toFixed(2), charLid: state.characters[0].lid });
+  state.lines.push({ text: '', translated: '', start: +start.toFixed(2), end: +(start+2).toFixed(2), charLid: state.characters[0].lid, expr: false });
   renderCharManager(); renderReviewLines();
 });
 
