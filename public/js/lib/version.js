@@ -4,8 +4,8 @@
 // para verificar (abajo a la derecha en la pantalla) que Vercel
 // ya sirvio la version nueva y no una cacheada.
 // ============================================================
-export const APP_VERSION = 'v1.8.1';
-export const APP_BUILD = '2026-08-21 · fix slider/drag + timeline regla + tc grande'
+export const APP_VERSION = 'v1.9.0';
+export const APP_BUILD = '2026-08-21 · timeline editable + zoom + fotos personajes'
 
 function injectBadge() {
   if (document.getElementById('appVersionBadge')) return;

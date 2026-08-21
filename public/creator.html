@@ -37,9 +37,11 @@
     #divider { width: 8px; cursor: col-resize; background: rgba(255,255,255,.08); border-radius: 4px; }
     #divider:hover { background: rgba(139,92,246,.5); }
     /* timeline por personajes */
-    .tl-row { position: relative; height: 22px; border-radius: 6px; background: rgba(255,255,255,.05); }
-    .tl-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; cursor: pointer; font-size: 9px; overflow: hidden; white-space: nowrap; }
-    #tlCursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: .8; pointer-events: none; }
+    .tl-row { position: relative; height: 24px; border-radius: 6px; background: rgba(255,255,255,.05); }
+    .tl-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; cursor: grab; font-size: 9px; overflow: hidden; white-space: nowrap; touch-action: none; }
+    .tl-bar:active { cursor: grabbing; }
+    #tlCursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: .85; pointer-events: none; z-index: 5; }
+    .avatar-sq { width: 38px; height: 38px; object-fit: cover; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: rgba(0,0,0,.3); }
   </style>
 </head>
 <body class="text-slate-100">

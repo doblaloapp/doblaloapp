@@ -13,7 +13,7 @@ const qs = new URLSearchParams(location.search);
 
 const state = {
   file: null, trimmedBlob: null, trimmedUrl: null, sceneVideoUrl: null, storagePath: null,
-  duration: 30, characters: [], lines: [], active: -1, editSceneId: qs.get('edit') || null,
+  duration: 30, characters: [], lines: [], active: -1, editSceneId: qs.get('edit') || null, tlZoom: 1,
 };
 
 function goPhase(n) {
@@ -37,7 +37,7 @@ async function loadForEdit(id) {
   $('creatorTitle').textContent = 'Editar Escena';
   $('sceneTitle').value = scene.title;
   const { data: chars } = await supabase.from('characters').select('*').eq('scene_id', id);
-  state.characters = (chars||[]).map(c => ({ lid: c.id, name: c.name, color: c.color }));
+  state.characters = (chars||[]).map(c => ({ lid: c.id, name: c.name, color: c.color, avatarUrl: c.avatar_url || null }));
   const { data: dlg } = await supabase.from('dialogues').select('*').eq('scene_id', id).order('line_order');
   state.lines = (dlg||[]).map(d => ({ text: d.original_text||'', translated: d.translated_text||'', start: +d.start_time, end: +d.end_time, charLid: d.character_id, expr: /^\(.*\)$/.test((d.original_text||'').trim()) }));
   enterReview(); goPhase(2);
@@ -112,11 +112,19 @@ function enterReview() {
 
 function renderCharManager() {
   $('charManager').innerHTML = state.characters.map(c => `
-    <div class="rounded-full pl-1 pr-1 py-1 flex items-center gap-1" style="background:${c.color}22; border:1px solid ${c.color}66">
+    <div class="rounded-lg p-1 flex items-center gap-1" style="background:${c.color}22; border:1px solid ${c.color}66">
+      <label class="cursor-pointer" title="Subir foto cuadrada">
+        <input type="file" accept="image/*" class="cm-photo hidden" data-lid="${c.lid}">
+        ${c.avatarUrl ? `<img src="${c.avatarUrl}" class="avatar-sq">` : `<span class="avatar-sq text-sm">📷</span>`}
+      </label>
       <input type="color" value="${c.color}" data-lid="${c.lid}" class="cm-color w-6 h-6 rounded-full bg-transparent border-0">
-      <input value="${c.name}" data-lid="${c.lid}" class="cm-name bg-transparent text-xs outline-none w-24">
+      <input value="${c.name}" data-lid="${c.lid}" class="cm-name bg-transparent text-xs outline-none w-20">
       <button data-lid="${c.lid}" class="cm-del text-rose-400 text-xs px-1">✕</button>
     </div>`).join('');
+  document.querySelectorAll('.cm-photo').forEach(el => el.addEventListener('change', e => {
+    const c = char(e.target.dataset.lid), f = e.target.files[0]; if (!f) return;
+    c.avatarFile = f; c.avatarUrl = URL.createObjectURL(f); renderCharManager();
+  }));
   document.querySelectorAll('.cm-name').forEach(el => el.addEventListener('input', e => { char(e.target.dataset.lid).name = e.target.value; renderReviewLines(); renderTimeline(); }));
   document.querySelectorAll('.cm-color').forEach(el => el.addEventListener('input', e => { char(e.target.dataset.lid).color = e.target.value; renderCharManager(); renderReviewLines(); renderTimeline(); }));
   document.querySelectorAll('.cm-del').forEach(el => el.addEventListener('click', e => removeChar(e.target.dataset.lid)));
@@ -203,28 +211,68 @@ function togglePlay(i) {
   v.addEventListener('timeupdate', lineStop);
 }
 
-// timeline por personajes (con regla y clic para saltar)
+// timeline por personajes: alineada, con zoom y barras editables
 function renderTimeline() {
   const dur = state.duration || 60;
-  const ticks = 6;
-  let ruler = '<div class="flex items-center gap-2"><span class="w-16 shrink-0"></span><div class="tl-ruler flex-1">';
+  const ticks = 8;
+  let ruler = '<div class="tl-ruler">';
   for (let k = 0; k <= ticks; k++) { const p = k/ticks*100; ruler += `<span class="tl-tick" style="left:${p}%">${tc(dur*k/ticks)}</span>`; }
-  ruler += '</div></div>';
+  ruler += '</div>';
 
   const rows = state.characters.map(c => {
     const bars = state.lines.map((l,i)=>({l,i})).filter(x => x.l.charLid === c.lid).map(({l,i}) => {
-      const left = (l.start/dur*100), w = Math.max(1.2, (l.end-l.start)/dur*100);
+      const left = l.start/dur*100, w = Math.max(0.8, (l.end-l.start)/dur*100);
       const col = l.expr ? '#f59e0b' : c.color;
       return `<div class="tl-bar" data-i="${i}" style="left:${left}%;width:${w}%;background:${col}" title="${(l.text||'').slice(0,40).replace(/"/g,'')}"></div>`;
     }).join('');
-    return `<div class="flex items-center gap-2"><span class="text-[10px] w-16 truncate shrink-0" style="color:${c.color}">${c.name}</span><div class="tl-row flex-1" data-track="1">${bars}</div></div>`;
+    return `<div class="text-[10px] mt-1 font-semibold" style="color:${c.color}">${c.name}</div><div class="tl-row" data-cid="${c.lid}">${bars}</div>`;
   }).join('');
 
-  $('timeline').innerHTML = ruler + rows + '<div id="tlCursor" style="left:0%"></div>';
+  const inner = ruler + rows + '<div id="tlCursor" style="left:0%"></div>';
+  $('timeline').innerHTML =
+    `<div class="flex items-center gap-2 mb-1 text-xs">
+       <button id="tlZoomOut" class="glass px-2 py-0.5 rounded">−</button>
+       <span class="text-slate-400">Zoom ${state.tlZoom.toFixed(1)}x</span>
+       <button id="tlZoomIn" class="glass px-2 py-0.5 rounded">+</button>
+       <button id="tlZoomFit" class="glass px-2 py-0.5 rounded">Ajustar</button>
+       <span class="text-[10px] text-slate-500 ml-auto">Arrastra las barras (centro mueve, bordes ajustan)</span>
+     </div>
+     <div id="tlScroll" class="overflow-x-auto"><div id="tlInner" class="relative" style="width:${state.tlZoom*100}%">${inner}</div></div>`;
 
-  document.querySelectorAll('.tl-bar').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); const i=+b.dataset.i; state.active=i; togglePlay(i); const row=document.querySelector(`.rev-line[data-i="${i}"]`); if(row) row.scrollIntoView({behavior:'smooth',block:'center'}); }));
-  // clic en la pista vacia -> saltar el video a ese tiempo
-  document.querySelectorAll('.tl-row').forEach(tr => tr.addEventListener('click', (e) => { if (e.target.classList.contains('tl-bar')) return; const r = tr.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (e.clientX - r.left)/r.width)); $('reviewVideo').currentTime = p * dur; }));
+  $('tlZoomIn').onclick = () => { state.tlZoom = Math.min(10, state.tlZoom + 0.5); renderTimeline(); };
+  $('tlZoomOut').onclick = () => { state.tlZoom = Math.max(1, state.tlZoom - 0.5); renderTimeline(); };
+  $('tlZoomFit').onclick = () => { state.tlZoom = 1; renderTimeline(); };
+
+  document.querySelectorAll('.tl-row').forEach(tr => tr.addEventListener('pointerdown', (e) => {
+    if (e.target.classList.contains('tl-bar')) return;
+    const r = tr.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (e.clientX - r.left)/r.width));
+    $('reviewVideo').currentTime = p * dur;
+  }));
+  document.querySelectorAll('.tl-bar').forEach(b => attachBarDrag(b, dur));
+}
+
+// arrastrar/redimensionar una barra para editar su tiempo
+function attachBarDrag(bar, dur) {
+  bar.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const i = +bar.dataset.i, l = state.lines[i];
+    const row = bar.parentElement, rect = row.getBoundingClientRect();
+    const rel = (e.clientX - bar.getBoundingClientRect().left) / Math.max(1, bar.offsetWidth);
+    const mode = rel < 0.28 ? 'start' : rel > 0.72 ? 'end' : 'move';
+    const startX = e.clientX, o = { s: l.start, e: l.end };
+    const rv = $('reviewVideo'); rv.pause();
+    const move = (ev) => {
+      const dt = (ev.clientX - startX) / rect.width * dur;
+      if (mode === 'move') { const len = o.e - o.s; let ns = Math.max(0, Math.min(dur - len, o.s + dt)); l.start = +ns.toFixed(2); l.end = +(ns + len).toFixed(2); }
+      else if (mode === 'start') { l.start = +Math.max(0, Math.min(l.end - 0.05, o.s + dt)).toFixed(2); }
+      else { l.end = +Math.min(dur, Math.max(l.start + 0.05, o.e + dt)).toFixed(2); }
+      bar.style.left = (l.start/dur*100) + '%';
+      bar.style.width = Math.max(0.8, (l.end-l.start)/dur*100) + '%';
+      rv.currentTime = mode === 'end' ? l.end : l.start;
+    };
+    const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); renderReviewLines(); renderTimeline(); };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+  });
 }
 
 $('addLineBtn').addEventListener('click', () => addLineAt(false));
@@ -307,8 +355,17 @@ $('publishBtn').addEventListener('click', async () => {
       const { data: scene, error: e1 } = await supabase.from('scenes').insert({ title, source_video_url: state.sceneVideoUrl, duration_seconds: state.duration, aspect_ratio: ($('aspect')?.value)||'original', status: 'published', created_by: user.id }).select().single();
       if (e1) throw e1; sceneId = scene.id;
     }
+    st.textContent = 'Subiendo fotos...';
+    for (const c of state.characters) {
+      if (c.avatarFile) {
+        const ext = (c.avatarFile.type.split('/')[1] || 'png').replace('jpeg','jpg');
+        const path = `${user.id}/avatars/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const up = await supabase.storage.from(BUCKETS.scenesSource).upload(path, c.avatarFile, { contentType: c.avatarFile.type, upsert: true });
+        if (!up.error) c.avatarUrl = supabase.storage.from(BUCKETS.scenesSource).getPublicUrl(path).data.publicUrl;
+      }
+    }
     st.textContent = 'Guardando personajes...';
-    const charRows = state.characters.map(c => ({ scene_id: sceneId, name: (c.name||'Personaje').trim(), color: c.color }));
+    const charRows = state.characters.map(c => ({ scene_id: sceneId, name: (c.name||'Personaje').trim(), color: c.color, avatar_url: (c.avatarUrl && !c.avatarUrl.startsWith('blob:')) ? c.avatarUrl : null }));
     const { data: chars, error: e2 } = await supabase.from('characters').insert(charRows).select();
     if (e2) throw e2;
     const lidToId = {}; state.characters.forEach((c, idx) => { lidToId[c.lid] = chars[idx].id; });
