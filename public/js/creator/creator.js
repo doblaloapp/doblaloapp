@@ -132,14 +132,15 @@ function renderReviewLines() {
     const opts = state.characters.map(ch => `<option value="${ch.lid}" ${ch.lid===l.charLid?'selected':''}>${ch.name}</option>`).join('');
     const accent = l.expr ? '#f59e0b' : c.color;
     const bg = l.expr ? 'rgba(245,158,11,.12)' : (c.color+'14');
-    const zMin = l._zoom ? Math.max(0, l.start-1) : 0;
-    const zMax = l._zoom ? Math.min(dur, l.end+1) : dur;
+    const pad = l._zoom ? Math.max(0.5, (l.end - l.start) * 0.75) : 0;  // zoom adaptable
+    const zMin = l._zoom ? Math.max(0, l.start - pad) : 0;
+    const zMax = l._zoom ? Math.min(dur, l.end + pad) : dur;
     const span = (zMax - zMin) || dur;
     const sL = ((l.start - zMin)/span)*100, sW = ((l.end-l.start)/span)*100;
     return `
-      <div class="rev-line rounded-lg p-2.5 ${l.expr?'expr':''}" data-i="${i}" draggable="true" style="border-left:4px solid ${accent}; background:${bg}">
+      <div class="rev-line rounded-lg p-2.5 ${l.expr?'expr':''}" data-i="${i}" style="border-left:4px solid ${accent}; background:${bg}">
         <div class="flex items-center gap-2 mb-2 flex-wrap">
-          <span class="drag-handle text-slate-500" title="Arrastra">⋮⋮</span>
+          <span class="drag-handle text-slate-500" draggable="true" title="Arrastra para reordenar">⋮⋮</span>
           <span class="text-[11px] font-mono text-slate-500">#${i+1}</span>
           <button class="play-line text-sm px-2 py-0.5 rounded bg-violet-600/70 hover:bg-violet-600" data-i="${i}">▶</button>
           <select class="assign-char glass rounded px-2 py-0.5 text-xs bg-transparent" data-i="${i}">${opts}</select>
@@ -168,13 +169,17 @@ function renderReviewLines() {
   document.querySelectorAll('.ln-es').forEach(el => el.addEventListener('input', e => { state.lines[+e.target.dataset.i].translated = e.target.value; autoGrow(e.target); }));
   document.querySelectorAll('.split-line').forEach(b => b.addEventListener('click', () => { const i=+b.dataset.i, input = document.querySelector(`.ln-text[data-i="${i}"]`); splitLine(i, input.selectionStart ?? Math.floor((input.value||'').length/2)); }));
 
-  const clampFill = (i, zMin, span) => { const l = state.lines[i], row = document.querySelector(`.dr-track[data-i="${i}"]`); if (row) { row.querySelector('.dr-fill').style.left = ((l.start-zMin)/span*100)+'%'; row.querySelector('.dr-fill').style.width = ((l.end-l.start)/span*100)+'%'; } updateLineTc(i); renderTimeline(); };
-  document.querySelectorAll('.dr-range.start').forEach(el => el.addEventListener('input', e => { const i=+e.target.dataset.i, l=state.lines[i]; const zMin=l._zoom?Math.max(0,l.start-1):0, zMax=l._zoom?Math.min(dur,l.end+1):dur, span=(zMax-zMin)||dur; let v=+e.target.value; if (v>l.end-0.05){v=l.end-0.05;e.target.value=v;} l.start=+v.toFixed(2); rv.pause(); rv.currentTime=v; clampFill(i,zMin,span); }));
-  document.querySelectorAll('.dr-range.end').forEach(el => el.addEventListener('input', e => { const i=+e.target.dataset.i, l=state.lines[i]; const zMin=l._zoom?Math.max(0,l.start-1):0, zMax=l._zoom?Math.min(dur,l.end+1):dur, span=(zMax-zMin)||dur; let v=+e.target.value; if (v<l.start+0.05){v=l.start+0.05;e.target.value=v;} l.end=+v.toFixed(2); rv.pause(); rv.currentTime=v; clampFill(i,zMin,span); }));
+  const zwin = (l) => { const pad = l._zoom ? Math.max(0.5,(l.end-l.start)*0.75) : 0; const zMin = l._zoom?Math.max(0,l.start-pad):0, zMax = l._zoom?Math.min(dur,l.end+pad):dur; return { zMin, span:(zMax-zMin)||dur }; };
+  const clampFill = (i) => { const l = state.lines[i], row = document.querySelector(`.dr-track[data-i="${i}"]`), {zMin,span}=zwin(l); if (row) { row.querySelector('.dr-fill').style.left = ((l.start-zMin)/span*100)+'%'; row.querySelector('.dr-fill').style.width = ((l.end-l.start)/span*100)+'%'; } updateLineTc(i); renderTimeline(); };
+  document.querySelectorAll('.dr-range.start').forEach(el => el.addEventListener('input', e => { const i=+e.target.dataset.i, l=state.lines[i]; let v=+e.target.value; if (v>l.end-0.05){v=l.end-0.05;e.target.value=v;} l.start=+v.toFixed(2); rv.pause(); rv.currentTime=v; clampFill(i); }));
+  document.querySelectorAll('.dr-range.end').forEach(el => el.addEventListener('input', e => { const i=+e.target.dataset.i, l=state.lines[i]; let v=+e.target.value; if (v<l.start+0.05){v=l.start+0.05;e.target.value=v;} l.end=+v.toFixed(2); rv.pause(); rv.currentTime=v; clampFill(i); }));
 
+  // reordenar: SOLO desde el asa (asi el slider no mueve la caja)
+  document.querySelectorAll('.drag-handle').forEach(h => {
+    h.addEventListener('dragstart', () => { const row = h.closest('.rev-line'); dragFrom = +row.dataset.i; row.classList.add('dragging'); });
+    h.addEventListener('dragend', () => { const row = h.closest('.rev-line'); if (row) row.classList.remove('dragging'); document.querySelectorAll('.rev-line').forEach(x=>x.classList.remove('drop-target')); });
+  });
   document.querySelectorAll('.rev-line').forEach(el => {
-    el.addEventListener('dragstart', () => { dragFrom = +el.dataset.i; el.classList.add('dragging'); });
-    el.addEventListener('dragend', () => { el.classList.remove('dragging'); document.querySelectorAll('.rev-line').forEach(x=>x.classList.remove('drop-target')); });
     el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop-target'); });
     el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
     el.addEventListener('drop', e => { e.preventDefault(); const to = +el.dataset.i; if (dragFrom===null||dragFrom===to) return; const [m] = state.lines.splice(dragFrom,1); state.lines.splice(to,0,m); dragFrom=null; renderReviewLines(); renderTimeline(); });
@@ -198,19 +203,28 @@ function togglePlay(i) {
   v.addEventListener('timeupdate', lineStop);
 }
 
-// timeline por personajes
+// timeline por personajes (con regla y clic para saltar)
 function renderTimeline() {
   const dur = state.duration || 60;
+  const ticks = 6;
+  let ruler = '<div class="flex items-center gap-2"><span class="w-16 shrink-0"></span><div class="tl-ruler flex-1">';
+  for (let k = 0; k <= ticks; k++) { const p = k/ticks*100; ruler += `<span class="tl-tick" style="left:${p}%">${tc(dur*k/ticks)}</span>`; }
+  ruler += '</div></div>';
+
   const rows = state.characters.map(c => {
     const bars = state.lines.map((l,i)=>({l,i})).filter(x => x.l.charLid === c.lid).map(({l,i}) => {
       const left = (l.start/dur*100), w = Math.max(1.2, (l.end-l.start)/dur*100);
       const col = l.expr ? '#f59e0b' : c.color;
       return `<div class="tl-bar" data-i="${i}" style="left:${left}%;width:${w}%;background:${col}" title="${(l.text||'').slice(0,40).replace(/"/g,'')}"></div>`;
     }).join('');
-    return `<div class="flex items-center gap-2"><span class="text-[10px] w-16 truncate shrink-0" style="color:${c.color}">${c.name}</span><div class="tl-row flex-1">${bars}</div></div>`;
+    return `<div class="flex items-center gap-2"><span class="text-[10px] w-16 truncate shrink-0" style="color:${c.color}">${c.name}</span><div class="tl-row flex-1" data-track="1">${bars}</div></div>`;
   }).join('');
-  $('timeline').innerHTML = rows + '<div id="tlCursor" style="left:0%"></div>';
-  document.querySelectorAll('.tl-bar').forEach(b => b.addEventListener('click', () => { const i=+b.dataset.i; state.active=i; togglePlay(i); const row=document.querySelector(`.rev-line[data-i="${i}"]`); if(row) row.scrollIntoView({behavior:'smooth',block:'center'}); }));
+
+  $('timeline').innerHTML = ruler + rows + '<div id="tlCursor" style="left:0%"></div>';
+
+  document.querySelectorAll('.tl-bar').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); const i=+b.dataset.i; state.active=i; togglePlay(i); const row=document.querySelector(`.rev-line[data-i="${i}"]`); if(row) row.scrollIntoView({behavior:'smooth',block:'center'}); }));
+  // clic en la pista vacia -> saltar el video a ese tiempo
+  document.querySelectorAll('.tl-row').forEach(tr => tr.addEventListener('click', (e) => { if (e.target.classList.contains('tl-bar')) return; const r = tr.getBoundingClientRect(); const p = Math.max(0, Math.min(1, (e.clientX - r.left)/r.width)); $('reviewVideo').currentTime = p * dur; }));
 }
 
 $('addLineBtn').addEventListener('click', () => addLineAt(false));
