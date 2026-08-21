@@ -41,6 +41,7 @@ try {
   grid.innerHTML = (scenes && scenes.length) ? scenes.map(s => `
     <div class="glass rounded-2xl overflow-hidden hover:bg-white/10 transition group relative">
       <button class="del-scene absolute top-2 right-2 z-10 bg-black/60 hover:bg-rose-600 rounded-lg px-2 py-1 text-xs" data-id="${s.id}" title="Eliminar escena">🗑</button>
+      <a href="/creator.html?edit=${s.id}" class="edit-scene absolute top-2 right-10 z-10 bg-black/60 hover:bg-violet-600 rounded-lg px-2 py-1 text-xs" title="Editar escena">✏️</a>
       <a href="/studio.html?scene=${s.id}" class="block">
         <div class="aspect-video bg-black/40 flex items-center justify-center text-4xl">🎞️</div>
         <div class="p-4">

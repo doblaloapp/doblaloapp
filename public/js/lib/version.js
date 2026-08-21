@@ -4,8 +4,8 @@
 // para verificar (abajo a la derecha en la pantalla) que Vercel
 // ya sirvio la version nueva y no una cacheada.
 // ============================================================
-export const APP_VERSION = 'v1.7.0';
-export const APP_BUILD = '2026-08-21 · reordenar + subtítulos + expresiones + dual-slider'
+export const APP_VERSION = 'v1.8.0';
+export const APP_BUILD = '2026-08-21 · editar escena + timeline + zoom + textareas'
 
 function injectBadge() {
   if (document.getElementById('appVersionBadge')) return;

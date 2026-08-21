@@ -17,10 +17,10 @@
     .phase { display: none; } .phase.active { display: block; }
     .rev-line.playing { outline: 2px solid rgba(139,92,246,.6); }
     .rev-line.dragging { opacity: .4; }
+    .rev-line.drop-target { border-top: 3px solid #22d3ee; }
     .rev-line.expr { font-style: italic; }
     #revTc { text-shadow: 0 1px 4px #000; }
-    #revSub { text-shadow: 0 2px 6px #000; }
-    /* doble slider por linea */
+    #revSub { text-shadow: 0 2px 8px #000, 0 0 4px #000; }
     .dr-track { position: relative; height: 26px; border-radius: 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); }
     .dr-fill { position: absolute; top: 0; bottom: 0; background: rgba(139,92,246,.30); }
     .dr-range { position: absolute; top: 0; left: 0; width: 100%; height: 26px; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
@@ -29,12 +29,20 @@
     .dr-range.end::-webkit-slider-thumb { background: #22d3ee; }
     .dr-range.end::-moz-range-thumb { background: #22d3ee; }
     .drag-handle { cursor: grab; }
+    .ln-area { resize: none; overflow: hidden; }
+    /* divisor ajustable */
+    #divider { width: 8px; cursor: col-resize; background: rgba(255,255,255,.08); border-radius: 4px; }
+    #divider:hover { background: rgba(139,92,246,.5); }
+    /* timeline por personajes */
+    .tl-row { position: relative; height: 22px; border-radius: 6px; background: rgba(255,255,255,.05); }
+    .tl-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; cursor: pointer; font-size: 9px; overflow: hidden; white-space: nowrap; }
+    #tlCursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: .8; pointer-events: none; }
   </style>
 </head>
 <body class="text-slate-100">
   <header class="glass sticky top-0 z-20 px-6 py-3 flex items-center justify-between">
     <a href="/dashboard.html" class="flex items-center gap-2 hover:opacity-80">
-      <span>&larr;</span><span class="text-2xl">&#127916;</span><h1 class="font-bold">Crear Escena</h1>
+      <span>&larr;</span><span class="text-2xl">&#127916;</span><h1 id="creatorTitle" class="font-bold">Crear Escena</h1>
     </a>
     <div class="hidden sm:flex items-center gap-3 text-xs">
       <span id="stepDot1" class="step active">1&middot;Crear</span><span>&rarr;</span>
@@ -43,17 +51,17 @@
     </div>
   </header>
 
-  <main class="max-w-6xl mx-auto p-4 sm:p-6">
+  <main class="w-full px-3 sm:px-5 py-4">
 
-    <!-- FASE 1: SUBIR + RECORTAR + ANALIZAR -->
+    <!-- FASE 1 -->
     <section id="phase1" class="phase active">
-      <div class="glass rounded-2xl p-6 space-y-4">
+      <div class="glass rounded-2xl p-6 space-y-4 max-w-4xl mx-auto">
         <h2 class="font-bold text-lg">1 &middot; Sube, recorta y analiza</h2>
         <input id="videoInput" type="file" accept="video/*"
           class="block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-violet-600 file:text-white" />
         <video id="preview" class="w-full rounded-xl bg-black aspect-video hidden" controls></video>
         <div id="trimBlock" class="hidden space-y-3">
-          <p class="text-xs text-slate-400">Ajusta el fragmento (arrastra las manijas o usa los botones).</p>
+          <p class="text-xs text-slate-400">Ajusta el fragmento.</p>
           <div class="trim-track" id="trimTrack">
             <div class="trim-fill" id="trimFill"></div>
             <input type="range" id="inRange" class="trim-range" min="0" max="100" step="0.1" value="0">
@@ -86,17 +94,25 @@
       </div>
     </section>
 
-    <!-- FASE 2: REVISAR -->
+    <!-- FASE 2 -->
     <section id="phase2" class="phase">
-      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <!-- IZQUIERDA (grande): video + personajes -->
-        <div class="lg:col-span-3 space-y-3 lg:sticky lg:top-20 self-start">
+      <div id="revSplit" class="flex flex-col lg:flex-row gap-2 items-stretch">
+        <!-- IZQUIERDA: video + timeline + personajes -->
+        <div id="leftPane" class="space-y-3 lg:sticky lg:top-20 self-start" style="flex: 0 0 58%">
           <div class="glass rounded-2xl p-2">
             <div class="relative">
               <video id="reviewVideo" class="w-full rounded-xl bg-black aspect-video" controls></video>
               <div id="revTc" class="absolute top-2 left-1/2 -translate-x-1/2 font-mono text-xl font-bold bg-black/60 px-3 py-1 rounded">00:00:00</div>
-              <div id="revSub" class="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[90%] text-center text-lg font-semibold px-3 py-1 rounded bg-black/50"></div>
+              <div id="revSub" class="absolute bottom-3 left-2 right-2 text-center text-xl font-bold px-3 py-2 rounded bg-black/60"></div>
             </div>
+          </div>
+          <!-- Linea de tiempo por personajes -->
+          <div class="glass rounded-2xl p-3">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-semibold">&#9202;&#65039; L&iacute;nea de tiempo</h3>
+              <span class="text-[11px] text-slate-400">Clic en una barra para ir a esa l&iacute;nea</span>
+            </div>
+            <div id="timeline" class="space-y-1 relative"></div>
           </div>
           <div class="glass rounded-2xl p-3">
             <div class="flex items-center justify-between mb-2">
@@ -116,9 +132,11 @@
           </div>
         </div>
 
+        <div id="divider" class="hidden lg:block self-stretch"></div>
+
         <!-- DERECHA: libreto -->
-        <div class="lg:col-span-2 glass rounded-2xl p-4">
-          <div class="flex items-center justify-between mb-2">
+        <div id="rightPane" class="glass rounded-2xl p-4 flex-1 min-w-0">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
             <h3 class="text-sm font-semibold">&#128220; L&iacute;neas</h3>
             <div class="flex gap-2">
               <select id="exprSelect" class="glass rounded px-2 py-1 text-xs bg-transparent">
@@ -135,7 +153,7 @@
               <button id="addLineBtn" class="glass px-2 py-1 rounded-lg text-xs hover:bg-white/10">+ L&iacute;nea</button>
             </div>
           </div>
-          <div id="reviewLines" class="space-y-2 max-h-[75vh] overflow-y-auto thin-scroll pr-1"></div>
+          <div id="reviewLines" class="space-y-2 max-h-[80vh] overflow-y-auto thin-scroll pr-1"></div>
         </div>
       </div>
       <div class="flex justify-end mt-4">
@@ -143,7 +161,7 @@
       </div>
     </section>
 
-    <!-- FASE 3: PUBLICAR -->
+    <!-- FASE 3 -->
     <section id="phase3" class="phase">
       <div class="glass rounded-2xl p-6 max-w-lg mx-auto">
         <h2 class="font-bold text-lg mb-3">3 &middot; Publicar</h2>
